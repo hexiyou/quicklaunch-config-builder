@@ -1,0 +1,503 @@
+{
+  "name": "QuickLaunch",
+  "version": 1,
+  "items": [
+    {
+      "id": "notepad",
+      "name": "记事本",
+      "subtitle": "快速记录文本",
+      "keywords": [
+        "notepad",
+        "txt",
+        "文本",
+        "记事"
+      ],
+      "icon": "C:\\Windows\\System32\\notepad.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\notepad.exe",
+      "pinned": true,
+      "accent": "#4f8cff",
+      "group": "sys"
+    },
+    {
+      "id": "cmd",
+      "name": "命令提示符",
+      "subtitle": "cmd.exe",
+      "keywords": [
+        "cmd",
+        "terminal",
+        "终端",
+        "命令行"
+      ],
+      "icon": "C:\\Windows\\System32\\cmd.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\cmd.exe",
+      "pinned": true,
+      "accent": "#22c55e",
+      "group": "sys"
+    },
+    {
+      "id": "powershell",
+      "name": "PowerShell",
+      "subtitle": "Windows PowerShell 5.1",
+      "keywords": [
+        "ps",
+        "shell",
+        "脚本"
+      ],
+      "icon": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "pinned": true,
+      "accent": "#3b82f6",
+      "group": "sys"
+    },
+    {
+      "id": "mspaint",
+      "name": "画图",
+      "subtitle": "mspaint.exe",
+      "keywords": [
+        "paint",
+        "draw",
+        "绘图"
+      ],
+      "icon": "C:\\Windows\\System32\\mspaint.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\mspaint.exe",
+      "pinned": true,
+      "accent": "#f59e0b",
+      "group": "sys"
+    },
+    {
+      "id": "explorer",
+      "name": "文件资源管理器",
+      "subtitle": "打开此电脑",
+      "keywords": [
+        "explorer",
+        "files",
+        "文件",
+        "目录"
+      ],
+      "icon": "C:\\Windows\\explorer.exe",
+      "type": "app",
+      "target": "C:\\Windows\\explorer.exe",
+      "pinned": true,
+      "accent": "#eab308",
+      "group": "sys"
+    },
+    {
+      "id": "taskmgr",
+      "name": "任务管理器",
+      "subtitle": "查看进程与性能",
+      "keywords": [
+        "task",
+        "process",
+        "进程"
+      ],
+      "icon": "C:\\Windows\\System32\\Taskmgr.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\Taskmgr.exe",
+      "accent": "#8b5cf6",
+      "group": "sys"
+    },
+    {
+      "id": "edge",
+      "name": "Edge 浏览器",
+      "subtitle": "Microsoft Edge",
+      "keywords": [
+        "browser",
+        "web",
+        "浏览器",
+        "上网"
+      ],
+      "icon": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "type": "app",
+      "target": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "accent": "#06b6d4",
+      "group": "net"
+    },
+    {
+      "id": "calc",
+      "name": "计算器",
+      "subtitle": "UWP 应用（shell 协议）",
+      "keywords": [
+        "calc",
+        "calculator",
+        "算"
+      ],
+      "icon": "",
+      "type": "url",
+      "target": "ms-calculator:",
+      "accent": "#22d3ee",
+      "group": "sys"
+    },
+    {
+      "id": "control",
+      "name": "控制面板",
+      "subtitle": "control.exe",
+      "keywords": [
+        "panel",
+        "设置",
+        "系统设置"
+      ],
+      "icon": "C:\\Windows\\System32\\control.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\control.exe",
+      "accent": "#64748b",
+      "group": "sys"
+    },
+    {
+      "id": "tool-dir",
+      "name": "本工具目录",
+      "subtitle": "在资源管理器中打开",
+      "keywords": [
+        "workdir",
+        "folder",
+        "目录"
+      ],
+      "icon": "C:\\Windows\\explorer.exe",
+      "type": "folder",
+      "target": ".",
+      "accent": "#f97316",
+      "group": "tool"
+    },
+    {
+      "id": "edit-config",
+      "name": "编辑配置 config.json",
+      "subtitle": "带自定义参数启动记事本",
+      "keywords": [
+        "config",
+        "设置",
+        "json",
+        "配置"
+      ],
+      "icon": "C:\\Windows\\System32\\notepad.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\notepad.exe",
+      "args": "config.json",
+      "workdir": ".",
+      "accent": "#94a3b8",
+      "group": "tool"
+    },
+    {
+      "id": "example-cmd-arg",
+      "name": "示例：cmd 带参数",
+      "subtitle": "选中后打空格再输内容，{{msg}} 会被换成你输的内容",
+      "keywords": [
+        "echo",
+        "示例",
+        "模板",
+        "cmd"
+      ],
+      "icon": "⚙",
+      "type": "cmd",
+      "target": "echo {{msg}}",
+      "params": [
+        {
+          "name": "msg",
+          "label": "要显示的文字",
+          "default": "hello"
+        }
+      ],
+      "accent": "#10b981",
+      "group": "tool"
+    },
+    {
+      "id": "example-cmd-chain",
+      "name": "示例：cmd 多条命令串起来",
+      "subtitle": "type=cmd 只套一层 cmd，&& 直接写、不用转义",
+      "keywords": [
+        "chain",
+        "示例",
+        "串联",
+        "chain"
+      ],
+      "icon": "⚙",
+      "type": "cmd",
+      "target": "echo 开始 && echo {{msg}} && echo 结束",
+      "params": [
+        {
+          "name": "msg",
+          "label": "中间那句",
+          "default": "中间"
+        }
+      ],
+      "accent": "#10b981",
+      "group": "tool"
+    },
+    {
+      "id": "example-open",
+      "name": "示例：用记事本打开指定文件",
+      "subtitle": "把文件拖进窗口就行（也可手输）；含空格会自动补引号",
+      "keywords": [
+        "open",
+        "示例",
+        "打开",
+        "open"
+      ],
+      "icon": "C:\\Windows\\System32\\notepad.exe",
+      "type": "app",
+      "target": "C:\\Windows\\System32\\notepad.exe",
+      "args": "{{file}}",
+      "params": [
+        {
+          "name": "file",
+          "label": "文件路径",
+          "placeholder": "拖一个文件进来，或手输路径",
+          "type": "path"
+        }
+      ],
+      "accent": "#94a3b8",
+      "group": "tool"
+    },
+    {
+      "id": "pull-config",
+      "name": "拉取在线配置",
+      "subtitle": "示例：下载远端 config.json 覆盖本地并重载（地址是假的）",
+      "keywords": [
+        "pull",
+        "config",
+        "sync",
+        "在线配置",
+        "同步"
+      ],
+      "icon": "⬇",
+      "type": "download",
+      "group": "tool",
+      "target": "https://example.com/quicklaunch/config.json",
+      "savePath": ".",
+      "fileName": "config.json",
+      "onExists": "overwrite",
+      "backup": true,
+      "reload": true,
+      "timeout": 20,
+      "accent": "#8b5cf6"
+    },
+    {
+      "id": "ip-config",
+      "name": "查看本机 IP",
+      "subtitle": "在 cmd 中执行 ipconfig /all",
+      "keywords": [
+        "cmd",
+        "ip",
+        "网络",
+        "命令"
+      ],
+      "icon": "⚙",
+      "type": "cmd",
+      "target": "ipconfig /all",
+      "accent": "#10b981",
+      "group": "net"
+    },
+    {
+      "id": "http-ip",
+      "name": "查公网 IP",
+      "subtitle": "api64.ipify.org · GET 后取 ip 字段",
+      "keywords": [
+        "ip",
+        "公网",
+        "地址",
+        "webhook"
+      ],
+      "icon": "",
+      "type": "webhook",
+      "group": "net",
+      "target": "https://api64.ipify.org",
+      "method": "GET",
+      "query": {
+        "format": "json"
+      },
+      "timeout": 10,
+      "jsonPath": "ip",
+      "pinned": true,
+      "accent": "#10b981"
+    },
+    {
+      "id": "http-github",
+      "name": "GitHub 仓库信息",
+      "subtitle": "api.github.com · 完整 JSON 格式化",
+      "keywords": [
+        "github",
+        "repo",
+        "仓库",
+        "api"
+      ],
+      "icon": "",
+      "type": "webhook",
+      "group": "net",
+      "target": "https://api.github.com/repos/hexiyou/ahk-webview2-launcher",
+      "method": "GET",
+      "headers": {
+        "Accept": "application/vnd.github+json"
+      },
+      "timeout": 15,
+      "pinned": false,
+      "accent": "#6366f1"
+    },
+    {
+      "id": "http-post",
+      "name": "POST 回显测试",
+      "subtitle": "httpbin.org · 带请求头 + JSON 体 + 取 json.from",
+      "keywords": [
+        "post",
+        "httpbin",
+        "回显",
+        "json"
+      ],
+      "icon": "",
+      "type": "webhook",
+      "group": "net",
+      "target": "https://httpbin.org/anything",
+      "method": "POST",
+      "headers": {
+        "X-Demo": "quicklaunch"
+      },
+      "body": {
+        "hello": "world",
+        "from": "QuickLaunch"
+      },
+      "timeout": 20,
+      "jsonPath": "json.from",
+      "pinned": false,
+      "accent": "#f59e0b"
+    },
+    {
+      "id": "http-geo",
+      "name": "查 IP 归属地",
+      "subtitle": "ip-api.com · 空格后可指定别的 IP",
+      "keywords": [
+        "ip",
+        "归属地",
+        "geo",
+        "whois"
+      ],
+      "icon": "",
+      "type": "webhook",
+      "group": "net",
+      "target": "http://ip-api.com/json/{{ip}}",
+      "method": "GET",
+      "query": {
+        "lang": "zh-CN"
+      },
+      "timeout": 10,
+      "params": [
+        {
+          "name": "ip",
+          "label": "目标 IP",
+          "placeholder": "留空查本机",
+          "optional": true
+        }
+      ],
+      "pinned": false,
+      "accent": "#0ea5e9"
+    },
+    {
+      "id": "vj",
+      "name": "看 JSON",
+      "type": "jsonfile",
+      "target": "file://{{path}}",
+      "params": 
+      [
+        { 
+        "name": "path", 
+        "label": "文件", 
+        "type": "path", 
+        "placeholder": "C:\\Users\\Administrator\\Downloads\\image_pools.json" 
+        }
+      ]
+    }, 
+    {
+      "id": "http-signed",
+      "name": "示例：带签名的 webhook",
+      "subtitle": "请求头里的 {{#ts}} / {{#env:…}} / {{#base64:…}} / {{#hmac:…}} 由 AHK 在发送前展开",
+      "keywords": [
+        "签名",
+        "sign",
+        "hmac",
+        "示例"
+      ],
+      "icon": "",
+      "type": "webhook",
+      "group": "net",
+      "target": "https://httpbin.org/anything",
+      "method": "GET",
+      "headers": [
+        "X-Timestamp: {{#ts}}",
+        "X-Nonce: {{#nonce:16}}",
+        "X-Signature: {{#hmac:demo:{ts}}}",
+        "X-Trace: {{#uuid}}",
+        "X-Client: {{#env:COMPUTERNAME}}",
+        "X-Auth: Basic {{#base64:demo-user:demo-pass}}"
+      ],
+      "timeout": 15,
+      "pinned": false,
+      "accent": "#8b5cf6"
+    },
+    {
+      "id": "dl-demo",
+      "name": "下载示例文件",
+      "subtitle": "小文件下载 · 存到「下载」目录，同名文件跳过",
+      "keywords": [
+        "download",
+        "下载",
+        "文件",
+        "curl"
+      ],
+      "icon": "⬇",
+      "type": "download",
+      "group": "net",
+      "target": "https://raw.githubusercontent.com/mozillazg/pinyin-data/master/pinyin.txt",
+      "savePath": "%USERPROFILE%\\Downloads",
+      "fileName": "",
+      "onExists": "skip",
+      "backup": false,
+      "timeout": 30,
+      "accent": "#0ea5e9"
+    }
+  ],
+  "groups": [
+    {
+      "id": "sys",
+      "name": "系统"
+    },
+    {
+      "id": "net",
+      "name": "网络"
+    },
+    {
+      "id": "tool",
+      "name": "工具"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "示例-每天查公网IP",
+      "run": "http-ip",
+      "at": "09:30",
+      "enabled": false
+    },
+    {
+      "id": "示例-工作日早晚各一次",
+      "run": "http-github",
+      "at": [
+        "09:30",
+        "18:00"
+      ],
+      "days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri"
+      ],
+      "enabled": false
+    },
+    {
+      "id": "示例-每6小时检查一次",
+      "run": "pull-config",
+      "every": "6h",
+      "runOnStart": true,
+      "enabled": false
+    }
+  ]
+}

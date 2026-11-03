@@ -1,0 +1,25 @@
+{
+  "name": "quicklaunch-config-builder",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "QuickLaunch (AHK + WebView2 启动器) config.json 可视化生成器",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "check": "npm run build && node scripts/verify.mjs && node scripts/verify-backend.mjs && node scripts/ui-check.mjs && node scripts/e2e-check.mjs",
+    "verify:model": "node scripts/verify.mjs",
+    "verify:backend": "node scripts/verify-backend.mjs",
+    "verify:ui": "node scripts/ui-check.mjs",
+    "verify:e2e": "node scripts/e2e-check.mjs",
+    "mock:backend": "node scripts/mock-backend.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.2.0"
+  }
+}

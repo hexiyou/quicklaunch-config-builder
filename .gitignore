@@ -1,0 +1,11 @@
+node_modules/
+
+# 构建产物：dist/index.html 是「可离线直接打开」的发布物，特意保留入库
+dist/*
+!dist/index.html
+
+# 日志与本地联调临时文件
+*.log
+.DS_Store
+ql-e2e-*.json
+ql-mock-config-*.json
