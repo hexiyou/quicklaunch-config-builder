@@ -7,8 +7,9 @@ import ReferencePanel from './components/ReferencePanel.vue'
 import JsonPreview from './components/JsonPreview.vue'
 import { ITEM_TYPES, GROUP_FIELDS, SCHEDULE_FIELDS } from './schema.js'
 import {
-  state, ui, jsonText, errorCount, warnCount, issues,
+  state, ui, jsonText, errorCount, warnCount, issues, filteredItems,
   addItem, addGroup, addSchedule, removeGroup, removeSchedule,
+  setItemTypeFilter,
   importJson, loadSample, clearAll, notify
 } from './store.js'
 
@@ -29,6 +30,31 @@ const currentItem = computed(() => state.items.find(x => x._key === ui.selectedK
 const currentGroup = computed(() => state.groups.find(x => x._key === ui.selectedKey))
 const currentSchedule = computed(() => state.schedules.find(x => x._key === ui.selectedKey))
 
+/** 左侧竖排类型 TAB：第一个「全部」，其后固定 8 种 type（含 0 条的，方便发现/新增） */
+const typeTabs = computed(() => {
+  const counts = {}
+  for (const it of state.items) counts[it.type] = (counts[it.type] || 0) + 1
+  return [
+    { key: 'all', label: '全部', count: state.items.length, title: '显示全部条目（与原来的列表一致）' },
+    ...ITEM_TYPES.map(t => ({
+      key: t.value,
+      label: t.value,
+      count: counts[t.value] || 0,
+      title: t.label + ' · ' + (counts[t.value] || 0) + ' 个条目'
+    }))
+  ]
+})
+
+function selectTypeTab(key) {
+  setItemTypeFilter(key)
+  if (key !== 'all') newType.value = key
+}
+
+/* 筛选变化时让底部「新增条目」的类型下拉跟着走；addItem 在别处改筛选也能同步 */
+watch(() => ui.itemTypeFilter, key => {
+  if (key !== 'all') newType.value = key
+}, { immediate: true })
+
 const groupIssues = computed(() => {
   const g = currentGroup.value
   if (!g) return []
@@ -44,10 +70,10 @@ const schedIssues = computed(() => {
 
 /* 切换页签时，把选中项落到该页第一条 */
 watch(() => ui.tab, (tab) => {
-  const first = tab === 'items' ? state.items[0]
+  const first = tab === 'items' ? filteredItems.value[0]
     : tab === 'groups' ? state.groups[0]
       : tab === 'schedules' ? state.schedules[0] : null
-  const valid = tab === 'items' ? currentItem.value
+  const valid = tab === 'items' ? filteredItems.value.some(x => x._key === ui.selectedKey)
     : tab === 'groups' ? currentGroup.value
       : tab === 'schedules' ? currentSchedule.value : true
   if (!valid) ui.selectedKey = first?._key || ''
@@ -143,7 +169,7 @@ function schedMode(s) {
     <div class="main-grid">
       <!-- 左侧列表 -->
       <aside class="panel sidebar">
-        <div class="panel-body">
+        <div class="panel-body" :class="{ 'rail-body': ui.tab === 'items' }">
           <div class="nav-tabs">
             <button v-for="t in tabs" :key="t.key" class="nav-tab" :class="{ active: ui.tab === t.key }" @click="selectTab(t.key)">
               <span class="ico">{{ t.ico }}</span>
@@ -152,26 +178,57 @@ function schedMode(s) {
             </button>
           </div>
 
-          <template v-if="ui.tab === 'items' || ui.tab === 'groups' || ui.tab === 'schedules'">
+          <!-- 条目页：左缘一列按 type 切换的纵向 TAB + 右侧可滚动的条目列表 -->
+          <template v-if="ui.tab === 'items'">
+            <div class="items-layout">
+              <div class="type-rail" role="tablist" aria-label="按条目类型筛选">
+                <button
+                  v-for="t in typeTabs" :key="t.key" class="type-tab"
+                  :class="{ active: ui.itemTypeFilter === t.key, zero: t.key !== 'all' && t.count === 0, 'type-name': t.key !== 'all' }"
+                  :title="t.title" role="tab" :aria-selected="ui.itemTypeFilter === t.key"
+                  @click="selectTypeTab(t.key)"
+                >
+                  <span class="tr-label">{{ t.label }}</span>
+                  <span class="tr-count">{{ t.count }}</span>
+                </button>
+              </div>
+
+              <div class="items-scroll">
+                <div class="list-sep"></div>
+                <div class="list-caption">
+                  <span>{{ ui.itemTypeFilter === 'all' ? '条目列表' : '条目列表 · ' + ui.itemTypeFilter }}</span>
+                  <span>{{ ui.itemTypeFilter === 'all' ? '点击编辑' : filteredItems.length + ' / ' + state.items.length }}</span>
+                </div>
+
+                <div v-for="it in filteredItems" :key="it._key" class="list-item" :class="{ active: ui.selectedKey === it._key }" @click="ui.selectedKey = it._key">
+                  <div class="li-icon" :style="{ background: accentOf(it) }">{{ (it.name || '?').slice(0, 1) }}</div>
+                  <div class="li-main">
+                    <div class="li-name">{{ it.name || it.id || '未命名' }}</div>
+                    <div class="li-sub">{{ it.id }}</div>
+                  </div>
+                  <span class="li-badge tag blue">{{ it.type }}</span>
+                </div>
+
+                <div v-if="!filteredItems.length" class="empty">
+                  <span class="em-ico">▤</span>
+                  <template v-if="ui.itemTypeFilter === 'all'">还没有条目<br />在下方选个类型，点「新增条目」</template>
+                  <template v-else>
+                    当前没有 <span class="mono">{{ ui.itemTypeFilter }}</span> 类型的条目<br />
+                    <button class="btn sm mt6" @click="addItem(ui.itemTypeFilter)">+ 新增 {{ ui.itemTypeFilter }} 条目</button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="ui.tab === 'groups' || ui.tab === 'schedules'">
             <div class="list-sep"></div>
             <div class="list-caption">
-              <span>{{ ui.tab === 'items' ? '条目列表' : ui.tab === 'groups' ? '分组列表' : '任务列表' }}</span>
+              <span>{{ ui.tab === 'groups' ? '分组列表' : '任务列表' }}</span>
               <span>点击编辑</span>
             </div>
 
-            <template v-if="ui.tab === 'items'">
-              <div v-for="(it, i) in state.items" :key="it._key" class="list-item" :class="{ active: ui.selectedKey === it._key }" @click="ui.selectedKey = it._key">
-                <div class="li-icon" :style="{ background: accentOf(it) }">{{ (it.name || '?').slice(0, 1) }}</div>
-                <div class="li-main">
-                  <div class="li-name">{{ it.name || it.id || '未命名' }}</div>
-                  <div class="li-sub">{{ it.id }}</div>
-                </div>
-                <span class="li-badge tag blue">{{ it.type }}</span>
-              </div>
-              <div v-if="!state.items.length" class="empty"><span class="em-ico">▤</span>还没有条目<br />在下方选个类型，点「新增条目」</div>
-            </template>
-
-            <template v-else-if="ui.tab === 'groups'">
+            <template v-if="ui.tab === 'groups'">
               <div v-for="g in state.groups" :key="g._key" class="list-item" :class="{ active: ui.selectedKey === g._key }" @click="ui.selectedKey = g._key">
                 <div class="li-icon" style="background:#7c8db0">@</div>
                 <div class="li-main">
@@ -205,6 +262,7 @@ function schedMode(s) {
               3. 右侧实时预览 + 校验；<br />
               4. 复制后覆盖软件目录的 config.json，点「重载配置」。<br />
               5. 可选：右侧「提交到后端」把配置 POST 给后端，配合软件「拉取在线配置」使用。
+              <div class="mt6">条目多时可用左侧竖排 TAB 按 type 筛选；它只影响列表显示，导出的 JSON 仍是全部条目。</div>
             </div>
           </template>
         </div>

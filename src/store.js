@@ -24,6 +24,7 @@ export const state = reactive(initialState())
 export const ui = reactive({
   tab: 'items',                 // items | groups | schedules | meta | reference
   selectedKey: '',
+  itemTypeFilter: 'all',        // 'all' | ITEM_TYPES[].value，仅影响左侧列表显示，不影响生成的 JSON
   previewMode: 'json',          // json | issues | submit（云端提交，附加功能）
   showHelp: true,
   toast: '',
@@ -36,6 +37,24 @@ export const issues = computed(() => validateAll(state))
 export const errorCount = computed(() => issues.value.filter(i => i.level === 'error').length)
 export const warnCount = computed(() => issues.value.filter(i => i.level === 'warn').length)
 
+/** 左侧条目列表的显示子集。注意：只是「看哪些」，不参与 buildConfig，导出永远是全部条目。 */
+export const filteredItems = computed(() =>
+  ui.itemTypeFilter === 'all'
+    ? state.items
+    : state.items.filter(it => it.type === ui.itemTypeFilter)
+)
+
+/** 当前选中项若不在可见子集里，就落到可见子集的第一条。 */
+export function syncItemSelection() {
+  const list = filteredItems.value
+  if (!list.some(x => x._key === ui.selectedKey)) ui.selectedKey = list[0]?._key || ''
+}
+
+export function setItemTypeFilter(key) {
+  ui.itemTypeFilter = key
+  syncItemSelection()
+}
+
 let saveTimer = 0
 watch(state, () => {
   clearTimeout(saveTimer)
@@ -43,6 +62,21 @@ watch(state, () => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch (e) { /* 忽略配额错误 */ }
   }, 300)
 }, { deep: true })
+
+/**
+ * 在筛选状态下把某个条目的 type 改掉时，别让它从列表里「凭空消失」：
+ * 如果当前正编辑的条目换了类型，筛选跟着切到新类型；否则只校正选中项。
+ * 依赖只有 _key/type 拼出来的字符串，编辑 name/target 等字段不会触发。
+ */
+watch(
+  () => state.items.map(i => i._key + ':' + i.type).join('|'),
+  () => {
+    if (ui.tab !== 'items' || ui.itemTypeFilter === 'all') return
+    const cur = state.items.find(x => x._key === ui.selectedKey)
+    if (cur && cur.type !== ui.itemTypeFilter) ui.itemTypeFilter = cur.type
+    else syncItemSelection()
+  }
+)
 
 /* ------------------------------------------------------------ 列表操作 */
 
@@ -65,6 +99,8 @@ export function addItem(type = 'app') {
   it.name = `新条目 ${n}`
   it.target = EXAMPLE_TARGET[type] || ''
   state.items.push(it)
+  // 筛选态下新增了别的类型，就把筛选切到新类型，保证刚加的条目立刻可见
+  if (ui.itemTypeFilter !== 'all' && ui.itemTypeFilter !== type) ui.itemTypeFilter = type
   ui.tab = 'items'
   ui.selectedKey = it._key
   return it
@@ -115,6 +151,7 @@ export function removeItem(it) {
   const i = state.items.indexOf(it)
   if (i >= 0) state.items.splice(i, 1)
   if (ui.selectedKey === it._key) ui.selectedKey = state.items[Math.min(i, state.items.length - 1)]?._key || ''
+  syncItemSelection()
 }
 export function removeGroup(g) {
   const i = state.groups.indexOf(g)
@@ -142,6 +179,7 @@ export function importJson(text) {
   state.schedules = next.schedules
   state.includeGroups = next.includeGroups
   state.includeSchedules = next.includeSchedules
+  ui.itemTypeFilter = 'all'
   ui.selectedKey = next.items[0]?._key || ''
   ui.tab = 'items'
 }
@@ -154,6 +192,7 @@ export function loadSample() {
   state.schedules = next.schedules
   state.includeGroups = next.includeGroups
   state.includeSchedules = next.includeSchedules
+  ui.itemTypeFilter = 'all'
   ui.selectedKey = next.items[0]?._key || ''
   ui.tab = 'items'
 }
@@ -166,6 +205,7 @@ export function clearAll() {
   state.schedules = next.schedules
   state.includeGroups = false
   state.includeSchedules = false
+  ui.itemTypeFilter = 'all'
   ui.selectedKey = ''
   ui.tab = 'items'
 }

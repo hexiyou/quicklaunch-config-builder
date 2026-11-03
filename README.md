@@ -100,6 +100,22 @@ README 反复强调「不写就是默认」「只有布尔 `false` / `true` 才�
 
 也支持「导入 config.json」反向编辑、载入内置示例、localStorage 自动保存。
 
+### 3.1 条目多时，用左侧纵向 TAB 按 type 筛选
+
+条目页左侧贴边有一列竖排 TAB，从上到下是 **「全部」+ 8 种 type**（app / cmd / url /
+folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条目的数量。
+
+- 「全部」是默认值，列表与以前**完全一致**，显示所有条目；
+- 点某个 type 只显示该类型的条目，列表标题变成「条目列表 · app」并显示 `10 / 23` 这样的计数；
+- 数量为 0 的类型仍保留按钮（灰显），点进去有空状态和「+ 新增该类型条目」快捷按钮；
+- 切换筛选时会自动选中该类型的第一条，中间编辑区不会留着一个列表里看不到的条目；
+- 底部「新增条目」的类型下拉会跟着当前筛选走；筛选状态下新增了别的类型，筛选自动切到新类型；
+  筛选状态下把某条目的 `type` 改了，筛选也会跟着改，条目不会凭空从列表里消失；
+- 切到「分组 / 定时任务 / 配置总览 / 字段速查」时竖栏自动隐藏，切回来保留之前的筛选；
+- **筛选只是「看哪些」，不参与 `buildConfig()`**：右侧 JSON、校验、复制、下载、提交到后端
+  始终使用全部条目，不会因为你正在看 `app` 就少导出一半配置。
+- 筛选状态只存在内存里，刷新页面回到「全部」；导入 / 载入示例 / 清空也会重置为「全部」。
+
 ---
 
 ## 4. 在线提交（附加功能）
@@ -421,7 +437,7 @@ npm run check
 |---|---|---|
 | 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒 |
 | 2 | `verify-backend.mjs` | 编译期注入、URL 覆盖、提交门禁、端点体检、请求体/头、超时、CORS 错误分类、HMAC 签名与独立实现比对、自定义 provider |
-| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、提交面板、不发请求/发请求、状态提示），共 41 项 |
+| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示），共 55 项 |
 | 4 | `e2e-check.mjs` | 起两个不同端口的 HTTP 服务，CDP 驱动浏览器做**真实跨域** POST → OPTIONS 预检 → GET 回读，再对启用 HMAC 的实例验证签名/重放/篡改 |
 
 单项运行：`npm run verify:model` / `verify:backend` / `verify:ui` / `verify:e2e`。
@@ -442,6 +458,8 @@ npm run check
 | `AUTH_ERROR` 提到 `crypto.subtle` | HMAC 需要安全上下文，见 5.5 |
 | 改了 `backend.config.js` 没生效 | 需要重新 `npm run build`；页面输入框里若还留着旧地址，会一直覆盖默认值，点「恢复默认」 |
 | 想回到软件自带配置 | 顶栏「载入示例配置」 |
+| 左侧条目好像少了一半 | 多半是点到了类型 TAB，看列表标题的「条目列表 · xxx」；点最上面的「全部」恢复。导出的 JSON 一直是完整的 |
+| 竖栏里的长类型名看不清 | 窗口太窄时会缩字号（≤1180px 断点）；拉宽窗口或把鼠标悬在按钮上看完整 `title` |
 
 ---
 
@@ -454,6 +472,7 @@ npm run check
 | 换鉴权算法 / 加自定义头 | `src/backend/auth.js`；同时更新后端 CORS Allow-Headers |
 | 改提交请求方法、包装 body、凭据策略 | `src/backend/submit.js` |
 | 改界面 | `src/components/BackendPanel.vue`、`src/styles.css` |
+| 类型 TAB 的样式 / 宽度 / 筛选项 | `src/App.vue` 的 `typeTabs`、`src/store.js` 的 `filteredItems`、`.type-rail` 系列样式 |
 | 单文件产物 | `vite.config.js` 的 `singleFileHtml()` 插件 |
 
 ---
