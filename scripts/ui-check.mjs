@@ -42,6 +42,7 @@ const inject = `
   const submitBtn = () => q('.submit-pane .sp-row .btn.primary');
   const byTypeLabel = label => qa('.type-rail .type-tab').find(x => (x.querySelector('.tr-label')?.textContent || '').trim() === label);
   const itemRows = () => qa('.items-scroll .list-item');
+  const itemCount = () => Number((qa('.nav-tab').find(x => x.textContent.indexOf('条目 items') >= 0)?.querySelector('.count')?.textContent || '0').trim());
 
   // 拦截 fetch：既能统计「是否发过请求」，又能在 file:// 下模拟成功 / CORS 失败
   window.__QL_FETCH_CALLS = [];
@@ -197,6 +198,112 @@ const inject = `
       ok('改 type 后筛选自动跟随到新类型',
         !!byTypeLabel('webhook') && byTypeLabel('webhook').classList.contains('active'));
       ok('改 type 后条目仍在可见列表里', !!q('.items-scroll .list-item.active'));
+
+      /* ---------------- 导入：全量覆盖 / 合并模式 / 撤销 ---------------- */
+      topBtn('载入示例配置'); await wait(450);
+      const total0 = itemCount();
+      ok('合并测试前重置为示例配置', total0 === 23, String(total0));
+
+      const mergeText = JSON.stringify({
+        name: 'SHOULD-NOT-APPEAR', version: 99,
+        items: [
+          { id: 'notepad', name: '冲突条目-新', type: 'cmd', target: 'ipconfig /all' },
+          { id: 'ql-merge-new-1', name: '新条目一', type: 'app', target: 'a.exe' },
+          { id: 'ql-merge-new-2', name: '新条目二', type: 'folder', target: '.' }
+        ],
+        groups: [{ id: 'ql-merge-group', name: '新分组' }],
+        schedules: [{ run: 'notepad', every: '1h' }]
+      });
+      const paste = txt => {
+        const ta = q('.import-modal textarea');
+        if (ta) { ta.value = txt; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+      };
+
+      topBtn('导入 config.json'); await wait(320);
+      ok('导入弹窗已打开', !!q('.import-modal'));
+      ok('默认选中「清空原有，全量覆盖」', q('#import-mode-replace')?.checked === true);
+      ok('默认不显示合并冲突策略', !q('.merge-policy'));
+
+      q('#import-mode-merge').click(); await wait(320);
+      ok('切到合并模式后出现两种冲突策略', !!q('#merge-policy-keep') && !!q('#merge-policy-replace'));
+      ok('冲突策略默认「保留原有」', q('#merge-policy-keep')?.checked === true);
+      ok('按钮文案变成「执行合并」', (q('#do-import-btn')?.textContent || '').indexOf('执行合并') >= 0);
+
+      paste(mergeText); await wait(420);
+      ok('合并预览出现', !!q('.merge-preview'));
+      ok('预览显示新增 4 项', (q('.merge-preview')?.innerText || '').indexOf('新增 4') >= 0,
+        (q('.merge-preview')?.innerText || '').slice(0, 90));
+      ok('预览列出冲突 ID', !!q('.mp-chip') && (q('.mp-chip')?.innerText || '').indexOf('notepad') >= 0);
+      ok('预览只读，编辑区未被改动', itemCount() === total0, itemCount() + '/' + total0);
+
+      q('#do-import-btn').click(); await wait(520);
+      ok('合并后弹窗关闭', !q('.import-modal'));
+      ok('合并后条目数 = 原数 + 2', itemCount() === total0 + 2, itemCount() + '/' + total0);
+      ok('合并后 JSON 含新条目', code().indexOf('ql-merge-new-1') >= 0 && code().indexOf('ql-merge-new-2') >= 0);
+      ok('keep 策略保留原有冲突条目', code().indexOf('冲突条目-新') < 0);
+      ok('合并后顶层 name 不被改写', code().indexOf('SHOULD-NOT-APPEAR') < 0);
+      ok('合并后无 ID 的定时任务被追加', code().indexOf('"every": "1h"') >= 0);
+      ok('合并后出现撤销按钮', !!q('#undo-merge-btn'));
+      ok('合并后类型筛选重置为「全部」', !!byTypeLabel('全部') && byTypeLabel('全部').classList.contains('active'));
+
+      q('#undo-merge-btn').click(); await wait(520);
+      ok('撤销后条目数恢复', itemCount() === total0, itemCount() + '/' + total0);
+      ok('撤销后新条目消失', code().indexOf('ql-merge-new-1') < 0);
+      ok('撤销后撤销按钮消失', !q('#undo-merge-btn'));
+
+      // 另一种冲突策略
+      topBtn('导入 config.json'); await wait(320);
+      q('#import-mode-merge').click(); await wait(320);
+      q('#merge-policy-replace').click(); await wait(250);
+      paste(mergeText); await wait(420);
+      ok('预览随策略切换提示整条覆盖', (q('.merge-preview')?.innerText || '').indexOf('整条覆盖') >= 0);
+      q('#do-import-btn').click(); await wait(520);
+      ok('replace 策略用新配置覆盖冲突条目', code().indexOf('冲突条目-新') >= 0);
+      ok('replace 策略仍保留顶层字段', code().indexOf('SHOULD-NOT-APPEAR') < 0);
+      q('#undo-merge-btn').click(); await wait(520);
+      ok('replace 合并也可撤销', itemCount() === total0);
+
+      // 合并后又编辑过 → 撤销必须先确认，避免静默吞掉新工作
+      topBtn('导入 config.json'); await wait(320);
+      q('#import-mode-merge').click(); await wait(320);
+      paste(mergeText); await wait(350);
+      q('#do-import-btn').click(); await wait(500);
+      const afterMerge3 = itemCount();
+      const addBtn = qa('.sidebar .panel-foot button').find(b => b.textContent.indexOf('新增条目') >= 0);
+      if (addBtn) addBtn.click();
+      await wait(380);
+      let confirmText = '';
+      const origConfirm = window.confirm;
+      window.confirm = msg => { confirmText = String(msg); return false; };
+      q('#undo-merge-btn').click(); await wait(380);
+      ok('合并后又编辑时撤销会先弹确认', confirmText.indexOf('一并回退') >= 0, confirmText.slice(0, 60));
+      ok('取消确认后不撤销', itemCount() === afterMerge3 + 1, itemCount() + '/' + afterMerge3);
+      window.confirm = () => true;
+      q('#undo-merge-btn').click(); await wait(450);
+      ok('确认后完成撤销', itemCount() === total0, itemCount() + '/' + total0);
+      window.confirm = origConfirm;
+
+      // 原来的全量覆盖行为必须原样保留
+      topBtn('导入 config.json'); await wait(320);
+      ok('重开弹窗仍默认全量覆盖', q('#import-mode-replace')?.checked === true);
+      paste(JSON.stringify({ name: 'FULL', version: 7, items: [{ id: 'only-one', name: '唯一条目', type: 'app', target: 'x.exe' }] }));
+      await wait(350);
+      ok('全量覆盖模式不显示合并预览', !q('.merge-preview'));
+      q('#do-import-btn').click(); await wait(520);
+      ok('全量覆盖后条目数等于导入文件', itemCount() === 1, String(itemCount()));
+      ok('全量覆盖会采用导入文件的顶层字段', code().indexOf('"FULL"') >= 0);
+      ok('全量覆盖会清掉旧撤销点', !q('#undo-merge-btn'));
+
+      // 解析失败不能改动编辑区
+      topBtn('导入 config.json'); await wait(320);
+      paste('{ broken json'); await wait(300);
+      q('#do-import-btn').click(); await wait(380);
+      ok('JSON 解析失败给出提示', body().indexOf('JSON 解析失败') >= 0);
+      ok('解析失败不改动编辑区', itemCount() === 1);
+      const cancel = qa('.import-modal .modal-foot .btn').find(b => b.textContent.indexOf('取消') >= 0);
+      if (cancel) cancel.click();
+      await wait(300);
+      topBtn('载入示例配置'); await wait(400);
     } catch (e) {
       R.push('FAIL | 脚本异常 | ' + (e && e.message ? e.message : e));
     }
@@ -219,7 +326,7 @@ try {
   dom = execFileSync(browser, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--user-data-dir=' + path.join(os.tmpdir(), 'ql-ui-check-profile-' + Date.now()),
-    '--virtual-time-budget=30000', '--dump-dom',
+    '--virtual-time-budget=45000', '--dump-dom',
     'file:///' + tmp.replace(/\\/g, '/')
   ], { encoding: 'utf-8', maxBuffer: 30 * 1024 * 1024, timeout: 90000, stdio: ['ignore', 'pipe', 'ignore'] })
 } catch (e) {

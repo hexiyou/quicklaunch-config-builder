@@ -4,8 +4,11 @@ import {
   createItem, createGroup, createSchedule, createParam, clone, uid
 } from './model.js'
 import { validateAll } from './validate.js'
+import { mergeStates } from './merge.js'
 
 const STORAGE_KEY = 'ql-config-builder-v1'
+/** 撤销快照单独一个 key，绝不碰自动保存用的 STORAGE_KEY */
+const UNDO_KEY = 'ql-merge-undo-v1'
 
 function initialState() {
   try {
@@ -168,11 +171,50 @@ export function removeParam(item, p) {
   if (i >= 0) item.params.splice(i, 1)
 }
 
+/* -------------------------------------------------- 合并撤销点（附加功能） */
+
+export const mergeUndo = reactive({ available: false, savedAt: 0, stats: null })
+
+function readUndo() {
+  try {
+    const raw = localStorage.getItem(UNDO_KEY)
+    if (!raw) return null
+    const o = JSON.parse(raw)
+    return (o && o.state && Array.isArray(o.state.items)) ? o : null
+  } catch (e) { return null }
+}
+function writeUndo(o) {
+  try {
+    localStorage.setItem(UNDO_KEY, JSON.stringify(o))
+    mergeUndo.available = true
+    mergeUndo.savedAt = o.savedAt || 0
+    mergeUndo.stats = o.stats || null
+  } catch (e) {
+    // 隐私模式 / 配额不足：合并照常可用，只是这次没有撤销点
+    mergeUndo.available = false
+  }
+}
+function clearUndo() {
+  try { localStorage.removeItem(UNDO_KEY) } catch (e) { /* 忽略 */ }
+  mergeUndo.available = false
+  mergeUndo.savedAt = 0
+  mergeUndo.stats = null
+}
+{
+  const boot = readUndo()
+  if (boot) {
+    mergeUndo.available = true
+    mergeUndo.savedAt = boot.savedAt || 0
+    mergeUndo.stats = boot.stats || null
+  }
+}
+
 /* ------------------------------------------------------------ 全局操作 */
 
 export function importJson(text) {
   const data = JSON.parse(text)   // 解析错误交给调用方捕获
   const next = stateFromJson(data)
+  clearUndo()                     // 整体替换后旧撤销点已无意义
   state.meta = next.meta
   state.items = next.items
   state.groups = next.groups
@@ -186,6 +228,7 @@ export function importJson(text) {
 
 export function loadSample() {
   const next = sampleState()
+  clearUndo()
   state.meta = next.meta
   state.items = next.items
   state.groups = next.groups
@@ -199,6 +242,7 @@ export function loadSample() {
 
 export function clearAll() {
   const next = emptyState()
+  clearUndo()
   state.meta = next.meta
   state.items = next.items
   state.groups = next.groups
@@ -208,6 +252,66 @@ export function clearAll() {
   ui.itemTypeFilter = 'all'
   ui.selectedKey = ''
   ui.tab = 'items'
+}
+
+/**
+ * 合并导入：只按 ID 把导入文件的三个数组并进现有编辑区。
+ * 不改动 importJson()，默认导入行为仍是「清空原有，全量覆盖」。
+ * @returns {{added:number, kept:number, replaced:number, conflicts:number, noId:number, policy:string}}
+ */
+export function mergeJson(text, policy = 'keep') {
+  const data = JSON.parse(text)          // 解析错误交给调用方捕获
+  const incoming = stateFromJson(data)
+  const snapshot = clone(state)          // 合并前的完整内部模型（含 _include / _extra / _key）
+  const { state: next, stats } = mergeStates(state, incoming, policy)
+
+  // 先落快照再改 state：即便后续渲染出问题，撤销能力也已经在了
+  writeUndo({ savedAt: Date.now(), state: snapshot, stats: null, fingerprint: '' })
+
+  state.meta = next.meta
+  state.items = next.items
+  state.groups = next.groups
+  state.schedules = next.schedules
+  state.includeGroups = next.includeGroups
+  state.includeSchedules = next.includeSchedules
+  ui.itemTypeFilter = 'all'
+  ui.tab = 'items'
+  syncItemSelection()
+
+  // 记录「合并完成瞬间」的指纹；合并后若又编辑过，撤销时会先弹确认
+  const undo = readUndo()
+  if (undo) writeUndo({ ...undo, stats: stats.totals, fingerprint: JSON.stringify(state) })
+  return { ...stats.totals, policy }
+}
+
+/** 撤销上次合并，把编辑区逐属性回填到快照（不能直接替换 reactive 引用）。 */
+export function undoMerge() {
+  const snap = readUndo()
+  if (!snap) { notify('没有可撤销的合并记录', 'bad'); return false }
+
+  const dirty = snap.fingerprint && JSON.stringify(state) !== snap.fingerprint
+  if (dirty && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+    if (!window.confirm('合并之后你还改过配置，撤销会把这些改动一并回退。确定继续吗？')) return false
+  }
+
+  const s = snap.state
+  state.meta = s.meta
+  state.items = s.items
+  state.groups = s.groups
+  state.schedules = s.schedules
+  state.includeGroups = s.includeGroups
+  state.includeSchedules = s.includeSchedules
+  ui.itemTypeFilter = 'all'
+  ui.tab = 'items'
+  syncItemSelection()
+  clearUndo()
+  notify('已撤销上次合并，编辑区恢复到合并前')
+  return true
+}
+
+export function dismissUndo() {
+  clearUndo()
+  notify('已丢弃合并撤销点')
 }
 
 export function notify(text, kind = 'ok') {

@@ -2,7 +2,8 @@
 
 给 [wv2-launcher](../wv2-launcher/README.md)（AHK + WebView2 的 Windows 快速启动器）配套的前端工具：
 在网页上点选、填表、增删条目，实时生成、校验并导出 `config.json`。
-**离线单文件**即可使用；另外附带一个**可选的「提交到后端」功能**，用于配合启动器已有的「拉取在线配置」做多机同步。
+**离线单文件**即可使用；另外附带两个**可选的附加功能**：把配置「提交到后端」（配合启动器已有的「拉取在线配置」做多机同步），
+以及「导入 config.json」的**合并模式**（按 ID 判重增量并入，可预览冲突、可撤销）。
 
 > 在线提交是附加功能：网络不通、后端没起、CORS 没配、`file://` 直接打开……都只会在提交面板里给出错误提示，
 > **不会影响本地生成 / 校验 / 复制 / 下载 / 导入** 等任何功能。
@@ -39,8 +40,9 @@ quicklaunch-config-builder/
 │   ├── main.js / App.vue      应用入口与主布局
 │   ├── schema.js              配置字段字典（说明 / 必填 / 格式 / 适用 type）
 │   ├── model.js               内部模型 ↔ config.json 的双向转换
+│   ├── merge.js               ★ 合并导入纯函数：planMerge / analyzeMerge / mergeStates
 │   ├── validate.js            校验引擎
-│   ├── store.js               响应式状态、localStorage 自动保存
+│   ├── store.js               响应式状态、localStorage 自动保存、合并撤销点
 │   ├── sample.config.json     内置示例（软件当前那份配置）
 │   ├── styles.css
 │   ├── backend/               ★ 在线提交相关（纯 JS，Node 里也能直接 import 做测试）
@@ -49,7 +51,7 @@ quicklaunch-config-builder/
 │   │   └── submit.js          校验门禁、端点体检、fetch 提交、错误分类
 │   └── components/            各编辑器；BackendPanel.vue = 云端提交面板
 ├── scripts/
-│   ├── verify.mjs             模型层「导入→导出」无损回归
+│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并引擎 23 项用例
 │   ├── verify-backend.mjs     提交 / 鉴权链路的 Node 层回归
 │   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩）
 │   ├── e2e-check.mjs          真实跨域端到端（两个 HTTP 服务 + CDP 驱动浏览器）
@@ -98,7 +100,7 @@ README 反复强调「不写就是默认」「只有布尔 `false` / `true` 才�
 3. 「复制 JSON」或「下载 config.json」→ 覆盖 `wv2-launcher/config.json`；
 4. 在启动器里点「重载配置」（或托盘菜单）即时生效；改坏了可从 `config.json.bak` 恢复。
 
-也支持「导入 config.json」反向编辑、载入内置示例、localStorage 自动保存。
+也支持「导入 config.json」反向编辑（可选全量覆盖 / 合并，见 §3.2）、载入内置示例、localStorage 自动保存。
 
 ### 3.1 条目多时，用左侧纵向 TAB 按 type 筛选
 
@@ -115,6 +117,39 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 - **筛选只是「看哪些」，不参与 `buildConfig()`**：右侧 JSON、校验、复制、下载、提交到后端
   始终使用全部条目，不会因为你正在看 `app` 就少导出一半配置。
 - 筛选状态只存在内存里，刷新页面回到「全部」；导入 / 载入示例 / 清空也会重置为「全部」。
+
+### 3.2 导入已有配置：全量覆盖 与 合并模式
+
+点顶栏「↑ 导入 config.json」，弹窗顶部先选导入方式（**每次打开都默认「清空原有，全量覆盖」**，所以不选直接回车的行为和以前完全一致）：
+
+| 方式 | 行为 |
+|---|---|
+| 清空原有，全量覆盖 | 原有行为：用导入文件整体替换编辑区，顶层字段、可选字段开关、字典外自定义键全部按导入文件还原 |
+| 合并到现有配置 | 只按 ID 把 `items` / `groups` / `schedules` 三个数组并进来；新 ID 追加在末尾，顶层 `name` / `version` / 顶层自定义键**保持现有值** |
+
+选「合并」后还要选重复 ID 的处理策略：
+
+| 策略 | 行为 |
+|---|---|
+| 保留原有配置 | 冲突的那条整条跳过，现有对象一个字段都不动（默认） |
+| 用新导入的配置覆盖原配置 | 用导入那条**整条替换**现有对象，含所有字段、可选字段是否写入、`params[]` 子项、自定义键；保留原位置与原 `_key`，列表顺序与当前选中项不跳 |
+
+**判重口径**
+
+- 键：`items[].id` / `groups[].id` / `schedules[].id`，与校验器一致（`String(id).trim()`，大小写敏感）；**其它字段一律不参与比较**。
+- `schedules[].id` 在启动器里是**可选**的（只是日志名，省略就用 `run`），所以 **id 为空的对象一律当新对象追加**，不猜指纹；`items` / `groups` 里 id 为空的脏数据同样追加，合并后校验器会提示「id 必填」，由你决定怎么修。
+- 导入文件**内部自身**有重复 ID 时：`replace` 策略下后出现的胜出，`keep` 策略下现有配置优先、重复项全跳过。
+- 只有「导入文件确实带 `groups` / `schedules` 键、且确实新增了对象」时才自动打开对应的输出开关；仅仅覆盖已有对象时保持你原来的开关状态，避免替你改主意。
+
+**冲突预览**：粘进 JSON 后（不用点按钮）弹窗会只读计算并展示「新增 X / 冲突 Y 个 ID / 无 ID 追加 Z」、按类型的明细、冲突 ID 清单与导入文件内部重复提示。预览与真正执行共用同一份 `planMerge()` 操作序列，看到什么就执行什么；预览阶段绝不改动编辑区。
+
+**撤销**：执行合并前会把编辑区的完整快照（含 `_include` / `_extra` / `_key`）写进独立的 localStorage key
+`ql-merge-undo-v1`，与自动保存用的 `ql-config-builder-v1` 互不干扰。顶栏出现「↶ 撤销上次合并」，点一下回到合并前。
+快照里存了「合并完成瞬间」的状态指纹：如果合并之后你又编辑过，撤销会先弹一次确认，避免静默吞掉新工作。
+执行「全量覆盖 / 载入示例 / 清空」会清掉旧撤销点。
+
+合并只改变「导入结果怎么放进 state」：`importJson()`、`stateFromJson()`、`buildConfig()`、校验引擎、提交与鉴权链路都没有改动，
+导出的 JSON 始终是完整的全量配置。合并后请顺手看一眼右侧「校验」页——`group` 引用、`run` 指向的条目可能因覆盖而失效，校验器会自动重算。
 
 ---
 
@@ -435,9 +470,9 @@ npm run check
 
 | 层 | 脚本 | 覆盖 |
 |---|---|---|
-| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒 |
+| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损） |
 | 2 | `verify-backend.mjs` | 编译期注入、URL 覆盖、提交门禁、端点体检、请求体/头、超时、CORS 错误分类、HMAC 签名与独立实现比对、自定义 provider |
-| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示），共 55 项 |
+| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**），共 98 项 |
 | 4 | `e2e-check.mjs` | 起两个不同端口的 HTTP 服务，CDP 驱动浏览器做**真实跨域** POST → OPTIONS 预检 → GET 回读，再对启用 HMAC 的实例验证签名/重放/篡改 |
 
 单项运行：`npm run verify:model` / `verify:backend` / `verify:ui` / `verify:e2e`。
@@ -460,6 +495,11 @@ npm run check
 | 想回到软件自带配置 | 顶栏「载入示例配置」 |
 | 左侧条目好像少了一半 | 多半是点到了类型 TAB，看列表标题的「条目列表 · xxx」；点最上面的「全部」恢复。导出的 JSON 一直是完整的 |
 | 竖栏里的长类型名看不清 | 窗口太窄时会缩字号（≤1180px 断点）；拉宽窗口或把鼠标悬在按钮上看完整 `title` |
+| 合并后某些条目没变 | 检查是不是选了「保留原有配置」；切到「用新导入的配置覆盖原配置」再导一次。冲突 ID 在预览清单里能逐条看到 |
+| 合并后多出一条没名字的定时任务 | 导入文件里那条没写 `id`；按设计 id 为空一律当新任务追加，可手动补 id 或删掉 |
+| 合并后校验出现 `group` / `run` 引用提醒 | 覆盖或新增让引用关系变了，校验器自动重算，按提示改 `group` / `run` 即可 |
+| 点「撤销上次合并」弹确认 | 合并之后又编辑过配置；撤销会连同这些新改动一起回退，不想要就点取消 |
+| 「撤销上次合并」按钮不见了 | 只有成功执行过合并才有撤销点；全量覆盖 / 载入示例 / 清空会清掉它，快照存在独立的 `ql-merge-undo-v1` |
 
 ---
 
@@ -473,6 +513,8 @@ npm run check
 | 改提交请求方法、包装 body、凭据策略 | `src/backend/submit.js` |
 | 改界面 | `src/components/BackendPanel.vue`、`src/styles.css` |
 | 类型 TAB 的样式 / 宽度 / 筛选项 | `src/App.vue` 的 `typeTabs`、`src/store.js` 的 `filteredItems`、`.type-rail` 系列样式 |
+| 合并判重规则 / 冲突策略 / 开关行为 | `src/merge.js`（纯函数，改完补 `scripts/verify.mjs` 用例） |
+| 导入弹窗的模式选择、冲突预览、撤销入口 | `src/App.vue` 的 `importMode` / `mergePolicy` / `mergePreview`、`src/store.js` 的 `mergeJson` / `undoMerge`、`.import-*` / `.mp-*` 样式 |
 | 单文件产物 | `vite.config.js` 的 `singleFileHtml()` 插件 |
 
 ---

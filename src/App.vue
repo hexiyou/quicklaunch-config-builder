@@ -6,17 +6,22 @@ import MetaEditor from './components/MetaEditor.vue'
 import ReferencePanel from './components/ReferencePanel.vue'
 import JsonPreview from './components/JsonPreview.vue'
 import { ITEM_TYPES, GROUP_FIELDS, SCHEDULE_FIELDS } from './schema.js'
+import { stateFromJson } from './model.js'
+import { analyzeMerge, MERGE_LABELS } from './merge.js'
 import {
   state, ui, jsonText, errorCount, warnCount, issues, filteredItems,
   addItem, addGroup, addSchedule, removeGroup, removeSchedule,
-  setItemTypeFilter,
-  importJson, loadSample, clearAll, notify
+  setItemTypeFilter, mergeUndo,
+  importJson, mergeJson, undoMerge, loadSample, clearAll, notify
 } from './store.js'
 
 const newType = ref('app')
 const importOpen = ref(false)
 const importText = ref('')
 const importError = ref('')
+/** 每次打开导入弹窗都回到「全量覆盖」，保证默认行为与以前完全一致 */
+const importMode = ref('replace')   // replace | merge
+const mergePolicy = ref('keep')     // keep | replace（仅 merge 模式下有意义）
 
 const tabs = [
   { key: 'meta', ico: '◈', label: '配置总览', count: () => '' },
@@ -82,6 +87,24 @@ watch(() => ui.tab, (tab) => {
 function selectTab(t) { ui.tab = t }
 
 /* ------------------------------------------------------------ 导入 */
+
+/** 只读的合并预览：和真正执行共用 planMerge，看到的与落地的必定一致 */
+const mergePreview = computed(() => {
+  if (importMode.value !== 'merge' || !importText.value.trim()) return null
+  try {
+    const incoming = stateFromJson(JSON.parse(importText.value))
+    return analyzeMerge(state, incoming, mergePolicy.value)
+  } catch (e) {
+    return { error: 'JSON 解析失败：' + e.message }
+  }
+})
+
+const undoTitle = computed(() => {
+  if (!mergeUndo.savedAt) return '撤销上次合并'
+  const s = mergeUndo.stats || {}
+  return `合并于 ${new Date(mergeUndo.savedAt).toLocaleString('zh-CN')}；新增 ${s.added ?? '-'} 项，重复 ${s.conflicts ?? '-'} 项。点击恢复到合并前。`
+})
+
 function onPickFile(e) {
   const f = e.target.files?.[0]
   if (!f) return
@@ -92,17 +115,32 @@ function onPickFile(e) {
 }
 function doImport() {
   if (!importText.value.trim()) { importError.value = '请先选择文件或粘贴 JSON 内容'; return }
+  if (mergePreview.value?.error) { importError.value = mergePreview.value.error; return }
   try {
-    importJson(importText.value)
+    if (importMode.value === 'merge') {
+      const r = mergeJson(importText.value, mergePolicy.value)
+      const act = r.policy === 'keep'
+        ? `重复 ${r.conflicts} 项保留原有`
+        : `重复 ${r.conflicts} 项已整条覆盖`
+      notify(`已合并：新增 ${r.added} 项，${act}${r.noId ? `；${r.noId} 项无 ID 直接追加` : ''}`)
+    } else {
+      importJson(importText.value)
+      notify('已载入配置，所有字段都已还原到编辑区')
+    }
     importOpen.value = false
     importText.value = ''
     importError.value = ''
-    notify('已载入配置，所有字段都已还原到编辑区')
   } catch (err) {
     importError.value = 'JSON 解析失败：' + err.message
   }
 }
-function openImport() { importOpen.value = true; importText.value = ''; importError.value = '' }
+function openImport() {
+  importOpen.value = true
+  importText.value = ''
+  importError.value = ''
+  importMode.value = 'replace'
+  mergePolicy.value = 'keep'
+}
 
 function doClear() {
   if (!window.confirm('确定清空当前编辑的全部配置吗？此操作只影响浏览器里的内容，不会改动磁盘上的 config.json。')) return
@@ -152,6 +190,7 @@ function schedMode(s) {
 
       <div class="topbar-actions">
         <button class="btn sm" @click="openImport">↑ 导入 config.json</button>
+        <button v-if="mergeUndo.available" id="undo-merge-btn" class="btn sm" :title="undoTitle" @click="undoMerge()">↶ 撤销上次合并</button>
         <button class="btn sm" @click="loadSample">载入示例配置</button>
         <button class="btn sm danger" @click="doClear">清空</button>
         <button class="btn sm" @click="ui.showHelp = !ui.showHelp">{{ ui.showHelp ? '隐藏字段说明' : '显示字段说明' }}</button>
@@ -340,27 +379,102 @@ function schedMode(s) {
 
     <!-- ------------------------------------------------ 导入弹窗 -->
     <div v-if="importOpen" class="modal-mask" @click.self="importOpen = false">
-      <div class="modal">
+      <div class="modal import-modal">
         <div class="modal-head">
           <div class="panel-title">导入已有 config.json</div>
           <div class="grow"></div>
           <button class="btn sm ghost" @click="importOpen = false">关闭</button>
         </div>
         <div class="modal-body">
+          <div class="im-title">导入方式</div>
+          <div class="import-modes">
+            <label class="import-mode" :class="{ active: importMode === 'replace' }">
+              <input id="import-mode-replace" type="radio" name="import-mode" value="replace" v-model="importMode" />
+              <span class="im-text">
+                <b>清空原有，全量覆盖</b>
+                <small>默认行为：用导入文件替换编辑区的全部内容，含顶层字段、可选字段开关与自定义键。</small>
+              </span>
+            </label>
+            <label class="import-mode" :class="{ active: importMode === 'merge' }">
+              <input id="import-mode-merge" type="radio" name="import-mode" value="merge" v-model="importMode" />
+              <span class="im-text">
+                <b>合并到现有配置</b>
+                <small>按 items / groups / schedules 的 id 判重，只把新 ID 追加进来；顶层 name / version 保持现有值。</small>
+              </span>
+            </label>
+          </div>
+
+          <div v-if="importMode === 'merge'" class="merge-policy">
+            <div class="muted fs11 mb8">遇到重复 ID 时：</div>
+            <label class="radio-line">
+              <input id="merge-policy-keep" type="radio" name="merge-policy" value="keep" v-model="mergePolicy" />
+              <span>保留原有配置（跳过导入的那条，整条不动）</span>
+            </label>
+            <label class="radio-line">
+              <input id="merge-policy-replace" type="radio" name="merge-policy" value="replace" v-model="mergePolicy" />
+              <span>用新导入的配置覆盖原配置（整条替换，保留原顺序与选中项）</span>
+            </label>
+          </div>
+
+          <!-- 只读冲突预览：与真正执行共用 planMerge -->
+          <div v-if="importMode === 'merge' && importText.trim()" class="merge-preview">
+            <div v-if="mergePreview?.error" class="field-err">{{ mergePreview.error }}</div>
+            <template v-else-if="mergePreview">
+              <div class="mp-head">
+                <b>合并预览</b>
+                <span class="muted fs11">只读计算，点下方按钮才会真正改动编辑区</span>
+              </div>
+              <div class="mp-stats">
+                <span class="tag green">新增 {{ mergePreview.totals.added }}</span>
+                <span class="tag blue">冲突 {{ mergePreview.conflictIds.length }} 个 ID</span>
+                <span v-if="mergePreview.totals.noId" class="tag gray">无 ID 追加 {{ mergePreview.totals.noId }}</span>
+                <span class="muted fs11">{{ mergePolicy === 'keep' ? '重复项保留原有' : '重复项整条覆盖' }}</span>
+              </div>
+              <div class="mp-detail muted fs11">
+                条目 +{{ mergePreview.counts.items.added }} · 分组 +{{ mergePreview.counts.groups.added }} · 定时任务 +{{ mergePreview.counts.schedules.added }}
+                <template v-if="mergePreview.totals.replaced"> · 覆盖 {{ mergePreview.totals.replaced }}</template>
+                <template v-if="mergePreview.totals.kept"> · 跳过 {{ mergePreview.totals.kept }}</template>
+              </div>
+              <div v-if="mergePreview.conflictIds.length" class="mp-list">
+                <div class="muted fs11 mb8">冲突 ID（{{ mergePreview.conflictIds.length }}）：</div>
+                <div class="mp-chips">
+                  <span v-for="c in mergePreview.conflictIds.slice(0, 16)" :key="c.kind + ':' + c.id" class="mp-chip">
+                    <span class="mp-kind">{{ c.label }}</span><span class="mono">{{ c.id }}</span>
+                  </span>
+                  <span v-if="mergePreview.conflictIds.length > 16" class="muted fs11">…等 {{ mergePreview.conflictIds.length - 16 }} 个</span>
+                </div>
+              </div>
+              <div v-if="mergePreview.duplicates.length" class="mp-warn">
+                导入文件内部自身有重复 ID（{{ mergePreview.duplicates.slice(0, 5).map(d => MERGE_LABELS[d.kind] + ' ' + d.id).join('、') }}）：
+                {{ mergePolicy === 'replace' ? '后出现的会胜出' : '现有配置优先，重复项都被跳过' }}。
+              </div>
+              <div v-if="!mergePreview.hasChanges" class="mp-warn">
+                这份文件没有带来任何新增或覆盖，执行合并不会改变编辑区。
+              </div>
+            </template>
+          </div>
+
           <div class="hint-box mb8">
-            导入会<b>替换当前编辑区的全部内容</b>（不会改动磁盘文件）。所有字段、包括可选字段是否写入、字典外的自定义键都会原样还原。
-            想回到软件自带的那份配置，点顶栏「载入示例配置」。
+            <template v-if="importMode === 'replace'">
+              导入会<b>替换当前编辑区的全部内容</b>（不会改动磁盘文件）。所有字段、包括可选字段是否写入、字典外的自定义键都会原样还原。
+              想回到软件自带的那份配置，点顶栏「载入示例配置」。
+            </template>
+            <template v-else>
+              合并只改动 <span class="mono">items / groups / schedules</span> 三个数组：新 ID 追加在末尾，重复 ID 按上面的策略处理；
+              <b>id 为空的对象一律追加</b>（定时任务 id 只是日志名，可选）。执行前会存一个撤销点，顶栏可一键回退。
+              合并后请顺手看一眼右侧「校验」页的引用类提醒。
+            </template>
           </div>
           <div class="row mb8">
             <input type="file" accept=".json,application/json" @change="onPickFile" />
           </div>
           <div class="muted fs11 mb8">或直接粘贴 JSON 文本：</div>
-          <textarea class="textarea mono" rows="10" v-model="importText" placeholder="把 config.json 的内容粘到这里"></textarea>
+          <textarea class="textarea mono" rows="9" v-model="importText" placeholder="把 config.json 的内容粘到这里"></textarea>
           <div v-if="importError" class="field-err mt6">{{ importError }}</div>
         </div>
         <div class="modal-foot">
           <button class="btn" @click="importOpen = false">取消</button>
-          <button class="btn primary" @click="doImport">解析并载入</button>
+          <button id="do-import-btn" class="btn primary" @click="doImport">{{ importMode === 'merge' ? '执行合并' : '解析并全量载入' }}</button>
         </div>
       </div>
     </div>
