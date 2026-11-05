@@ -71,6 +71,10 @@ export function ensureUsable(obj, field) {
   if (field.kind === 'tags' && !Array.isArray(v)) v = []
   else if (field.kind === 'params' && !Array.isArray(v)) v = []
   else if (field.kind === 'kv' && (v == null || typeof v !== 'object')) v = {}
+  else if (field.kind === 'multipart' && (v == null || typeof v !== 'object')) {
+    // 打开开关就给一个「完整式 + 一条待填文件行」的骨架，用户填完 path 即可用
+    v = { fields: {}, files: [{ field: 'file', path: '' }] }
+  }
   else if (field.kind === 'body' && v == null) v = ''
   else if (field.kind === 'times' && (v == null || v === '')) v = ''
   else if (field.kind === 'days' && (v == null || v === '')) v = ''

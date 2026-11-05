@@ -62,7 +62,7 @@ const byKey = Object.fromEntries(PARAM_FIELDS.map(f => [f.key, f]))
           </div>
         </div>
         <div v-if="p.name" class="hint-box">
-          在 <code>target</code> / <code>args</code> / <code>query</code> / <code>headers</code> / <code>body</code> / <code>savePath</code> / <code>fileName</code> 里写
+          在 <code>target</code> / <code>args</code> / <code>query</code> / <code>headers</code> / <code>body</code> / <code>savePath</code> / <code>fileName</code> / <code>multipart</code> 里写
           <code>{{ varTpl(p.name) }}</code> 即可把参数放到指定位置。
         </div>
       </div>

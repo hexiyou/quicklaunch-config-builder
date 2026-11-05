@@ -132,7 +132,7 @@ const reqText = f => f.required ? '必填' : '可选'
 
     <!-- 动态值 -->
     <div class="ref-block">
-      <h3 class="ref-title">请求头动态值（只展开请求头，由 AHK 在发送前算）</h3>
+      <h3 class="ref-title">发送前展开的动态值（headers 与 body 都会展开）</h3>
       <table class="ref-table">
         <thead><tr><th>写法</th><th>结果</th></tr></thead>
         <tbody>

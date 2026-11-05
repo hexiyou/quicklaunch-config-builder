@@ -134,7 +134,7 @@ const inject = `
       tab('字段速查'); await wait(400);
       ok('字段速查表格齐全', qa('.ref-table').length >= 5, qa('.ref-table').length + ' 张表');
       ok('字段速查含 target 规则', body().indexOf('target 的解析规则') >= 0);
-      ok('字段速查含动态值', body().indexOf('请求头动态值') >= 0);
+      ok('字段速查含动态值', body().indexOf('发送前展开的动态值') >= 0);
       ok('字段速查含 8 种 type', body().indexOf('8 种 type') >= 0);
 
       /* ---------------- 云端提交（附加功能） ---------------- */
@@ -304,6 +304,72 @@ const inject = `
       if (cancel) cancel.click();
       await wait(300);
       topBtn('载入示例配置'); await wait(400);
+
+      /* ---------------- multipart 编辑器 / 动态值口径 ---------------- */
+      outTab('生成的 JSON'); await wait(320);
+      const mpImport = {
+        name: 'MPTEST', version: 1,
+        items: [{ id: 'up', name: '上传测试', type: 'webhook', target: 'https://api.example.com/upload', method: 'POST' }]
+      };
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify(mpImport)); await wait(300);
+      q('#do-import-btn').click(); await wait(520);
+      ok('导入单条 webhook 用于 multipart 测试', itemCount() === 1 && code().indexOf('MPTEST') >= 0);
+
+      const mpRow = () => qa('.editor-panel .field-row').find(r => (r.querySelector('.field-key')?.textContent || '').trim() === 'multipart');
+      const mpTabs = () => qa('.mpart-editor .seg button');
+      const cfg = () => { try { return JSON.parse(code()) } catch (e) { return null } };
+      ok('webhook 编辑区含 multipart 字段', !!mpRow());
+      ok('multipart 默认不写入', mpRow()?.classList.contains('is-off') === true);
+      mpRow().querySelector('.include-toggle').click(); await wait(420);
+      ok('打开开关后出现 multipart 编辑器', !!q('.mpart-editor'));
+      ok('三种写法按钮齐全', mpTabs().length === 3, mpTabs().length + ' 个');
+      ok('默认选中「完整式」', mpTabs()[0]?.classList.contains('active') === true);
+      ok('JSON 预览可解析', !!cfg());
+      const mp0 = cfg()?.items?.[0]?.multipart;
+      ok('完整式输出 fields + files', !!mp0 && Array.isArray(mp0.files) && ('fields' in mp0), JSON.stringify(mp0));
+
+      mpTabs()[1].click(); await wait(380);
+      ok('切到「单文件」写法', mpTabs()[1].classList.contains('active'));
+      const mp1 = cfg()?.items?.[0]?.multipart;
+      ok('单文件写法输出扁平对象（无 fields / files）',
+        !!mp1 && !Array.isArray(mp1) && !('files' in mp1) && !('fields' in mp1), JSON.stringify(mp1));
+
+      mpTabs()[2].click(); await wait(380);
+      ok('切到「文件数组」写法', mpTabs()[2].classList.contains('active'));
+      ok('数组写法输出数组', Array.isArray(cfg()?.items?.[0]?.multipart), JSON.stringify(cfg()?.items?.[0]?.multipart));
+
+      mpTabs()[0].click(); await wait(380);
+      ok('切回「完整式」恢复 fields / files', Array.isArray(cfg()?.items?.[0]?.multipart?.files));
+      ok('文件子表含 4 个输入', qa('.mpart-editor .mpart-file-grid .mpart-cell input').length === 4);
+      const pathInput = qa('.mpart-editor .mpart-file-grid .mpart-cell input')[1];
+      pathInput.value = 'D:/pic.png';
+      pathInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(420);
+      ok('填 path 后 JSON 实时更新', code().indexOf('pic.png') >= 0);
+
+      const addFileBtn = qa('.mpart-editor .mpart-sub button').find(b => b.textContent.indexOf('添加文件') >= 0);
+      addFileBtn.click(); await wait(380);
+      ok('添加文件后出现 2 张文件卡片', qa('.mpart-editor .sub-card').length === 2, qa('.mpart-editor .sub-card').length + ' 张');
+      outTab('校验'); await wait(380);
+      ok('新文件缺 path 触发校验提示', body().indexOf('缺 path') >= 0);
+      outTab('生成的 JSON'); await wait(350);
+
+      // 导入一份「单文件简写」配置，验证编辑器能自动识别已有写法、不擅自改写
+      const singleImport = { name: 'MPSINGLE', items: [{ id: 'up2', name: '上传2', type: 'webhook', target: 'https://x', multipart: { field: 'f', file: 'a.png' } }] };
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify(singleImport)); await wait(300);
+      q('#do-import-btn').click(); await wait(520);
+      ok('导入单文件简写后自动识别写法', mpTabs()[1]?.classList.contains('active') === true,
+        'active=' + mpTabs().findIndex(b => b.classList.contains('active')));
+      const mp2 = cfg()?.items?.[0]?.multipart;
+      ok('导入的 file 别名原样保留', !!mp2 && !Array.isArray(mp2) && mp2.file === 'a.png', JSON.stringify(mp2));
+
+      tab('字段速查'); await wait(400);
+      ok('速查含 file 系列动态值', body().indexOf('{{#filebase64:路径}}') >= 0);
+      ok('速查口径为 headers 与 body 都展开', body().indexOf('headers 与 body 都展开') >= 0);
+      ok('速查不再出现「只展开请求头」', body().indexOf('只展开请求头') < 0);
+      ok('速查生效字段列了 multipart', body().indexOf('multipart') >= 0);
     } catch (e) {
       R.push('FAIL | 脚本异常 | ' + (e && e.message ? e.message : e));
     }

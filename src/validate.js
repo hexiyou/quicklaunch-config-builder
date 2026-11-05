@@ -32,6 +32,25 @@ function val(obj, key) {
   return obj[key]
 }
 
+/**
+ * multipart 归一化判空，口径对齐 wv2-launcher/ui/app.js 的 normalizeMultipart：
+ * 三种写法都认，返回 null 表示「配了但没一个能用的文件 / 普通字段」，
+ * 这时程序会静默退化成普通 body —— 正是上游注释里点名最难查的坑。
+ */
+function normalizeMultipartForCheck(mp) {
+  if (mp == null || typeof mp !== 'object') return null
+  let arr
+  let fields = null
+  if (Array.isArray(mp)) arr = mp
+  else if (Array.isArray(mp.files)) { arr = mp.files; fields = mp.fields }
+  else if (mp.path || mp.file) arr = [mp]
+  else arr = []
+  const files = arr.filter(f => f && typeof f === 'object' && (f.path || f.file))
+  const fieldKeys = (fields && typeof fields === 'object' && !Array.isArray(fields)) ? Object.keys(fields) : []
+  if (!files.length && !fieldKeys.length) return null
+  return { files, fieldKeys }
+}
+
 export function validateAll(state) {
   const issues = []
   const push = (level, where, field, msg) => issues.push({ level, where, field, msg })
@@ -145,6 +164,38 @@ export function validateAll(state) {
         case 'headers':
           if (v != null && typeof v !== 'object') push('error', where, f.key, `${f.key} 必须是对象或字符串数组。`)
           break
+        case 'multipart': {
+          if (typeof v !== 'object' || v == null) {
+            push('error', where, 'multipart', 'multipart 必须是对象或对象数组。')
+            break
+          }
+          if (!normalizeMultipartForCheck(v)) {
+            push('error', where, 'multipart', 'multipart 里没有可用的文件（files 每项至少要有 path）；程序会静默退化成普通 body。')
+            break
+          }
+          const arr = Array.isArray(v) ? v
+            : Array.isArray(v.files) ? v.files
+              : (v.path || v.file ? [v] : [])
+          arr.forEach((file, fi) => {
+            if (!file || typeof file !== 'object') {
+              push('error', where, `multipart[${fi}]`, `第 ${fi + 1} 个文件必须是对象（含 field / path）。`)
+            } else if (!String(file.path ?? file.file ?? '').trim()) {
+              push('error', where, `multipart[${fi}]`, `第 ${fi + 1} 个文件缺 path（或别名 file）；这一项会被程序直接过滤掉。`)
+            }
+          })
+          if (!Array.isArray(v)) {
+            if (v.fields != null && (typeof v.fields !== 'object' || Array.isArray(v.fields))) {
+              push('error', where, 'multipart', 'multipart.fields 必须是对象 {"name":"值"}。')
+            }
+            if (v.files != null && !Array.isArray(v.files)) {
+              push('error', where, 'multipart', 'multipart.files 必须是数组。')
+            }
+          }
+          if (included(it, 'body') && it.body !== '' && it.body != null) {
+            push('warn', where, 'multipart', '写了 multipart 就整个走它，body 会被忽略；两者都写不报错，但 body 不参与。')
+          }
+          break
+        }
         case 'group':
           if (v && state.includeGroups && !state.groups.some(g => String(g.id) === String(v))) {
             push('warn', where, 'group', `分组「${v}」没有在 groups 里定义；条目会归「未分组」。`)

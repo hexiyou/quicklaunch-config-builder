@@ -4,6 +4,7 @@ import { setInclude, ensureUsable } from '../model.js'
 import { DYNAMIC_VALUES, PARAM_TYPES, DAY_OPTIONS, DAY_PRESETS } from '../schema.js'
 import KvEditor from './KvEditor.vue'
 import ParamsEditor from './ParamsEditor.vue'
+import MultipartEditor from './MultipartEditor.vue'
 
 const props = defineProps({
   obj: { type: Object, required: true },
@@ -16,6 +17,9 @@ const props = defineProps({
 
 const isOn = computed(() => props.field.required || !!props.obj._include?.[props.field.key])
 const value = computed(() => props.obj[props.field.key])
+// 含花括号的文案必须走 JS 常量，Vue 模板会把字面 {{…}} 当插值解析
+const BODY_DYN_LABEL = '{{#…}}'
+const BODY_DYN_EXAMPLE = '{{#file:路径}}'
 
 function touch() {
   if (!props.field.required && !props.obj._include?.[props.field.key]) {
@@ -60,7 +64,7 @@ const tplVars = computed(() => {
 })
 const allInsertables = computed(() => {
   const own = tplVars.value.map(v => ({ tpl: `{{${v}}}`, desc: '参数：' + v }))
-  return props.field.key === 'headers' ? [...own, ...DYNAMIC_VALUES] : own
+  return ['headers', 'body'].includes(props.field.key) ? [...own, ...DYNAMIC_VALUES] : own
 })
 const insertChoice = ref('')
 function insertTpl(targetRef) {
@@ -251,6 +255,20 @@ const fieldErrors = computed(() => props.errors.filter(e => e.field === props.fi
         <textarea class="textarea mono" rows="4" :value="bodyText" @input="onBodyText" placeholder='{"hello":"world"}' />
         <div v-if="bodyErr" class="field-err">{{ bodyErr }}</div>
         <div v-else-if="bodyKind !== 'string'" class="hint-box">对象 / 数组会自动 <code>JSON.stringify</code> 后发送；带请求体又没指定 Content-Type 时，默认加 <code>application/json; charset=utf-8</code>。</div>
+        <div v-if="bodyKind === 'string' && allInsertables.length" class="inline-tools">
+          <span class="tool-label">插入：</span>
+          <select class="select mini-select" v-model="insertChoice">
+            <option value="">选择模板变量 / 动态值…</option>
+            <option v-for="t in allInsertables" :key="t.tpl" :value="t.tpl">{{ t.tpl }} · {{ t.desc }}</option>
+          </select>
+          <button class="btn sm" @click="insertTpl()">插到末尾</button>
+        </div>
+        <div v-if="bodyKind === 'string'" class="muted fs11 mt6">body 也会展开 <code v-text="BODY_DYN_LABEL"></code> 动态值：<code v-text="BODY_DYN_EXAMPLE"></code> 可让整个请求体来自本地文件（等价 curl --data-binary @x）。</div>
+      </template>
+
+      <!-- ---------------- multipart 文件上传 ---------------- -->
+      <template v-else-if="field.kind === 'multipart'">
+        <MultipartEditor :modelValue="value" :context="context" @update:modelValue="set" />
       </template>
 
       <!-- ---------------- params ---------------- -->

@@ -268,16 +268,23 @@ export const ITEM_FIELDS = [
   {
     key: 'headers', label: '请求头 headers', kind: 'kv', section: 'webhook', required: false,
     default: null, applies: ['webhook', 'download'],
-    desc: '请求头。数组形式时每条形如 "Name: Value"。可写 {{#ts}} / {{#env:…}} / {{#base64:…}} / {{#hmac:…}} 等动态值，由 AHK 在发送前展开（密钥不落配置文件）。带请求体又没指定 Content-Type 时，默认加 application/json; charset=utf-8。',
+    desc: '请求头。数组形式时每条形如 "Name: Value"。可写 {{#ts}} / {{#env:…}} / {{#file:…}} / {{#base64:…}} / {{#hmac:…}} 等动态值，由 AHK 在发送前展开；headers 与 body 都展开，密钥不落配置文件。带请求体又没指定 Content-Type 时，默认加 application/json; charset=utf-8；写了 multipart 时 Content-Type 由程序自己拼，你在 headers 里写了就不覆盖。',
     format: '对象 {"X-Token":"abc"} 或数组 ["Name: Value"]',
-    doc: '四、配置说明 → webhook 类型 / 请求头里的动态值'
+    doc: '四、配置说明 → webhook 类型 / 发送前展开的动态值'
   },
   {
     key: 'body', label: '请求体 body', kind: 'body', section: 'webhook', required: false,
     default: '', applies: ['webhook'],
-    desc: '字符串原样发；写对象 / 数组会自动 JSON.stringify。GET / HEAD 时忽略。支持 {{变量}} 模板。',
-    format: '字符串 或 对象 / 数组（JSON）',
-    doc: '四、配置说明 → webhook 类型'
+    desc: '字符串原样发；写对象 / 数组会自动 JSON.stringify。GET / HEAD 时忽略。支持 {{变量}} 模板，也支持 {{#file:…}} / {{#filebase64:…}} 等动态值（body 整个来自本地文件时等价 curl --data-binary @x）。同时写了 multipart 时，body 会被忽略。',
+    format: '字符串 或 对象 / 数组（JSON）· 可含 {{变量}} 与 {{#…}} 动态值',
+    doc: '四、配置说明 → webhook 类型 / 发送前展开的动态值'
+  },
+  {
+    key: 'multipart', label: '文件上传 multipart', kind: 'multipart', section: 'webhook', required: false,
+    default: null, applies: ['webhook'],
+    desc: '上传本地文件（等价 curl -F）。三种写法：完整式 {"fields":{…},"files":[…]}、单文件 {"field":"file","path":"…"}、文件数组 [{"field":…,"path":…}]。有它就整个走 multipart，body 不参与；Content-Type（含 boundary）由程序自己拼，你自己在 headers 里写了就不覆盖。单文件上限 8MB。',
+    format: '对象 或 对象数组 · files[] 每项 field（缺省 file）/ path（必填）/ filename / type；path 支持 {{参数}}、file://、%TEMP%、相对路径',
+    doc: '四、配置说明 → webhook 类型 / 上传本地文件（multipart）'
   },
   {
     key: 'timeout', label: '超时 timeout（秒）', kind: 'number', section: 'webhook', required: false,
@@ -459,6 +466,10 @@ export const DYNAMIC_VALUES = [
   { tpl: '{{#uuid}}', desc: 'UUID v4' },
   { tpl: '{{#nonce:16}}', desc: '16 位随机小写字母数字（默认 16，上限 128）' },
   { tpl: '{{#env:NAME}}', desc: '环境变量 NAME 的值（取不到就报错，不会给空串）' },
+  { tpl: '{{#file:路径}}', desc: '读本地文本文件，默认裁掉尾部换行；二进制文件会报错拒发' },
+  { tpl: '{{#file-raw:路径}}', desc: '同上，但保留原样的尾部换行' },
+  { tpl: '{{#filebase64:路径}}', desc: '按字节读（二进制也安全），编码成 Base64 字符串' },
+  { tpl: '{{#filehash:sha256:路径}}', desc: '文件字节的摘要，十六进制；算法支持 md5 / sha1 / sha256 / sha384 / sha512' },
   { tpl: '{{#md5:文本}}', desc: 'MD5，十六进制小写' },
   { tpl: '{{#sha1:文本}}', desc: 'SHA-1，十六进制小写' },
   { tpl: '{{#sha256:文本}}', desc: 'SHA-256，十六进制小写' },
@@ -472,11 +483,13 @@ export const DYNAMIC_VALUES = [
 
 export const DYNAMIC_RULES = [
   '# 是关键：前端不认它，原样交给 AHK，避免和 params 变量冲突。',
-  '只展开请求头：target / body 里的 {{#ts}} 不动，那里仍然只认 params 变量。',
+  '展开面：headers 与 body 都展开（body 可整个来自 {{#file:…}}，等价 curl --data-binary @x）；file 参数的路径本身也展开。',
   '认不出来的一律原样保留（大小写敏感），不会误伤老配置里的字面量。',
   '密钥名写错、环境变量取不到、展开后带 CR/LF（请求头注入）都会拒发。',
+  '{{#file:…}} 默认裁尾部换行，{{#file-raw:…}} 才保留；二进制文件改用 {{#filebase64:…}} 或 multipart。',
   '摘要 / Base64 / HMAC 的参数里可用单花括号 {ts} {tsms} {uuid} {nonce:N} 引用动态值。',
-  '不要写成 {{#hmac:demo:{{#ts}}}} —— 收尾会凑出 }}}} 被当成转义，改用 {ts}。'
+  '不要写成 {{#hmac:demo:{{#ts}}}} —— 收尾会凑出 }}}} 被当成转义，改用 {ts}。',
+  '模板内联上限 2MB，multipart 单文件上限 8MB；{{#file:路径}} 里的路径不能带裸花括号。'
 ]
 
 export const TARGET_RULES = [
@@ -488,14 +501,14 @@ export const TARGET_RULES = [
   { type: 'app', rule: '绝对路径 / 协议原样；. .. 或带分隔符的相对路径按脚本目录解析；裸命令名交给 PATH', example: '.\\tool.exe → <脚本目录>\\tool.exe；notepad.exe → PATH' }
 ]
 
-export const TEMPLATE_FIELDS = ['target', 'args', 'query', 'headers', 'body', 'savePath', 'fileName']
+export const TEMPLATE_FIELDS = ['target', 'args', 'query', 'headers', 'body', 'savePath', 'fileName', 'multipart']
 
 export const TEMPLATE_RULES = [
   '只有声明了 params 的条目才替换；没声明就整条不替换，{{x}} 原样直传（老配置一个字节都不变）。',
   '被模板用掉的参数不再追加到末尾；没用到的照旧按声明顺序追加。',
   '引用了没声明的变量 → 拒绝执行，不静默替换成空串（错误消息里会列出变量名）。',
   '{{{{ 输出字面 {{，}}}} 输出字面 }} —— 给「参数本身就是模板语法」留逃生口。',
-  '生效字段：target / args / query / headers / body / savePath / fileName；query 的键不参与（只替换值）。',
+  '生效字段：target / args / query / headers / body / savePath / fileName / multipart；query 的键不参与（只替换值）。',
   'workdir 不在生效字段里：载入时已展开成绝对路径，再套模板会得到 D:\\app\\C:\\work。',
   'app / ahk 的 args 里，独占一个位置的变量会自动补引号；cmd 不补。',
   '按声明顺序位置填（条目名 值1 值2），也可以命名填（lang=en）跳过前面的变量。'

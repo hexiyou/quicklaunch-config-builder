@@ -49,11 +49,11 @@ quicklaunch-config-builder/
 │   │   ├── config.js          编译期常量读取 + 页面覆盖值的读写
 │   │   ├── auth.js            鉴权 provider / QL-HMAC-SHA256-v1 签名
 │   │   └── submit.js          校验门禁、端点体检、fetch 提交、错误分类
-│   └── components/            各编辑器；BackendPanel.vue = 云端提交面板
+│   └── components/            各编辑器；BackendPanel.vue = 云端提交，MultipartEditor.vue = 文件上传
 ├── scripts/
-│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并引擎 23 项用例
+│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并 23 项 + multipart 23 项用例
 │   ├── verify-backend.mjs     提交 / 鉴权链路的 Node 层回归
-│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩）
+│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩，121 项）
 │   ├── e2e-check.mjs          真实跨域端到端（两个 HTTP 服务 + CDP 驱动浏览器）
 │   └── mock-backend.mjs       ★ 零依赖参考后端，已配好 CORS / 可选 HMAC 校验
 └── dist/index.html            构建产物（作为离线发布物一并入库）
@@ -64,24 +64,28 @@ quicklaunch-config-builder/
 ## 2. 配置覆盖度与校验口径
 
 字段字典 `src/schema.js` 逐项对照 `wv2-launcher/README.md` 的
-**「四、配置说明」**（含 webhook / download / jsonfile / 模板变量 / 请求头动态值）与
-**「七、定时调度」**，并核对 `wv2-launcher/ui/app.js` 的归一化实现，共结构化 **49 个字段**：
+**「四、配置说明」**（含 webhook / download / jsonfile / 模板变量 / 发送前展开的动态值）与
+**「七、定时调度」**，并核对 `wv2-launcher/ui/app.js` 的归一化实现，共结构化 **50 个字段**：
 
 | 区域 | 字段数 | 说明 |
 |---|---|---|
 | 顶层 | 5 | `name` / `version` / `items` / `groups` / `schedules` |
-| 条目 `items[]` | 26 | 8 种 `type`（app / cmd / url / folder / ahk / webhook / download / jsonfile）动态决定哪些字段可见 |
+| 条目 `items[]` | 27 | 8 种 `type`（app / cmd / url / folder / ahk / webhook / download / jsonfile）动态决定哪些字段可见 |
 | 参数 `params[]` | 7 | 交互参数子表，含 `{{变量}}` 支持 |
 | 分组 `groups[]` | 2 | |
 | 定时任务 `schedules[]` | 9 | `at` / `every` / `days` / `enabled` 等 |
 
 界面里每个字段都带 README 对应的说明、格式、适用类型；「字段速查」页把全部字段列成表格一次看全。
+**发送前展开的动态值**收录 18 种（含 `{{#file:…}}` / `{{#file-raw:…}}` / `{{#filebase64:…}}` /
+`{{#filehash:算法:…}}` 四个文件系列），口径为 **headers 与 body 都展开**，见 §3.3。
 
 **校验要点**：`id` 必填唯一且限 `[A-Za-z0-9_.-]`；`target` 按 type 校验（webhook / download 必须 http(s)）；
 `timeout > 0 且 ≤120`；`method` 限 6 种、`onExists` 限 skip/overwrite；
 `at` 为 `HH:MM(:SS)` 及范围、`every` 30 秒～30 天、`at`/`every` 二选一、`days` 只跟 `at`；
 布尔字段严格只认真/假（写字符串或数字会报错，因为程序会按缺省处理）；
 `accent` 颜色格式；`group` 引用检查；模板变量未声明直接报错、没声明 params 只警告。
+`multipart` 三种写法都认，会拦截「没有任何可用文件」「`files[]` 某项缺 `path`」「值不是对象」，
+并在同时写了 `body` 时提醒 body 会被忽略；`{{参数}}` 模板的生效字段已包含 `multipart`。
 
 ### 可选字段的勾选框
 
@@ -150,6 +154,50 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 
 合并只改变「导入结果怎么放进 state」：`importJson()`、`stateFromJson()`、`buildConfig()`、校验引擎、提交与鉴权链路都没有改动，
 导出的 JSON 始终是完整的全量配置。合并后请顺手看一眼右侧「校验」页——`group` 引用、`run` 指向的条目可能因覆盖而失效，校验器会自动重算。
+
+### 3.3 webhook 文件上传：`multipart` 与文件类动态值
+
+跟进上游提交 `38dc410`（「webhook 支持上传本地文件」）。在条目编辑区「HTTP 请求」分组里勾选
+`multipart` 开关，会出现结构化编辑器，顶部三个按钮切换**三种写法**（程序都认）：
+
+| 写法 | 生成的 JSON | 说明 |
+|---|---|---|
+| 完整式 | `{"fields":{"note":"hi"},"files":[{"field":"photo","path":"{{file}}"}]}` | 可同时带普通文本字段和多个文件 |
+| 单文件 | `{"field":"file","path":"C:\\a.png"}` | 只传一个文件、不带 `fields` 的简写 |
+| 文件数组 | `[{"field":"a","path":"1.png"},{"field":"b","path":"2.png"}]` | 只传多个文件、不带 `fields` 的简写 |
+
+`files[]` 每行四个字段：`field`（表单字段名，缺省 `file`）、`path`（**必填**，本地路径）、
+`filename`（上传后服务端看到的名字，缺省取磁盘文件名）、`type`（MIME，缺省按扩展名猜）。
+`path` 与 `fields` 的值都支持 `{{参数}}` 和 `{{#…}}` 动态值，编辑器里各有一个插入下拉。
+
+行为约定（与启动器一致）：
+
+- **有 `multipart` 就整个走它，`body` 不参与**；两者都写不报错，但校验器会提醒。`Content-Type`（含 boundary）由程序自己拼，你在 `headers` 里写了就不覆盖。
+- 单文件上限 **8MB**；文件名里的引号和换行会被替换成单引号和空格（防止往包里插假头部）。
+- `path` 支持 `{{参数}}`、`file://`、`%TEMP%`、相对路径；代码还认 `file` 作为 `path` 的别名，导入时会原样保留。
+- 写了 `multipart` 却没有任何可用文件是最容易静默失效的情况（程序会退化成普通 body），校验器会直接报「没有可用的文件」；`files[]` 某项缺 `path` 也会逐条报错。
+
+**导入兼容性**：导入已有配置时，编辑器按值反推写法（数组 → 文件数组、带 `fields`/`files` 键 → 完整式、带 `path`/`file` → 单文件）。
+你不主动改就不会重写这段 JSON，字典外的自定义键也会原样带回；`scripts/verify.mjs` 对三种写法 + `file` 别名都做了逐字段往返断言。
+切换写法时数据不会丢：切到「单文件 / 文件数组」时不兼容的 `fields` 和多出来的文件会**暂存**（界面给提示、不写进 JSON），切回「完整式」即恢复。
+
+**动态值口径**：上游把展开面从「只有 headers」扩到了 **headers + body**，并新增四个文件系列：
+
+| 写法 | 结果 |
+|---|---|
+| `{{#file:路径}}` | 读本地文本文件，默认裁掉尾部换行；二进制文件报错拒发 |
+| `{{#file-raw:路径}}` | 同上，保留原样的尾部换行 |
+| `{{#filebase64:路径}}` | 按字节读（二进制也安全），编码成 Base64 |
+| `{{#filehash:sha256:路径}}` | 文件字节的摘要，十六进制；算法支持 md5 / sha1 / sha256 / sha384 / sha512 |
+
+`body` 整个来自一个文件时等价 `curl --data-binary @x`。模板内联上限 2MB；`{{#file:路径}}` 里的路径不能带裸花括号。
+`{{#…}}` 带 `#`，前端的字符类不认它，所以不会被误判成未声明的 `{{参数}}`。
+`{{变量}}` 的生效字段同步补上了 `multipart`（`ui/app.js` 的 `TPL_FIELDS` 也加了它），
+因此 `multipart` 里引用了没在 `params` 声明的变量同样会被校验器拦下。
+
+> 上游 `wv2-launcher/README.md` 的动态值小节里还留了一句「只展开请求头：target / body 里的 `{{#ts}}` 不动」，
+> 那是 11-02 的旧文，本次代码改了行为但没删干净（已与项目作者确认）。**以 `launcher.ahk` 的
+> `body := HdrExpand(body)` 和本节为准**；本工具、字段速查、校验说明统一按 headers + body 表述。
 
 ---
 
@@ -470,9 +518,9 @@ npm run check
 
 | 层 | 脚本 | 覆盖 |
 |---|---|---|
-| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损） |
+| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损）；**multipart / 动态值 23 项**（三种写法 + `file` 别名逐字段往返、模板扫描、校验拦截、动态值不误判） |
 | 2 | `verify-backend.mjs` | 编译期注入、URL 覆盖、提交门禁、端点体检、请求体/头、超时、CORS 错误分类、HMAC 签名与独立实现比对、自定义 provider |
-| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**），共 98 项 |
+| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**、**multipart 三种写法切换与 JSON 联动、导入自动识别写法、动态值口径**），共 121 项 |
 | 4 | `e2e-check.mjs` | 起两个不同端口的 HTTP 服务，CDP 驱动浏览器做**真实跨域** POST → OPTIONS 预检 → GET 回读，再对启用 HMAC 的实例验证签名/重放/篡改 |
 
 单项运行：`npm run verify:model` / `verify:backend` / `verify:ui` / `verify:e2e`。
@@ -500,6 +548,11 @@ npm run check
 | 合并后校验出现 `group` / `run` 引用提醒 | 覆盖或新增让引用关系变了，校验器自动重算，按提示改 `group` / `run` 即可 |
 | 点「撤销上次合并」弹确认 | 合并之后又编辑过配置；撤销会连同这些新改动一起回退，不想要就点取消 |
 | 「撤销上次合并」按钮不见了 | 只有成功执行过合并才有撤销点；全量覆盖 / 载入示例 / 清空会清掉它，快照存在独立的 `ql-merge-undo-v1` |
+| 勾了 `multipart` 就报「没有可用的文件」 | 每个 `files[]` 项都要填 `path`（或别名 `file`）；只填 `fields` 而没有文件时程序会静默退化成普通 body，所以校验器直接拦下 |
+| 切到「单文件 / 文件数组」后 `fields` 不见了 | 两种简写按设计不带 `fields`；内容已暂存、界面有提示，切回「完整式」即可恢复，不会丢数据 |
+| 同时写了 `body` 和 `multipart` | 有 `multipart` 就整个走它，`body` 会被忽略；校验器只提醒不报错，删掉其中一个即可 |
+| 导入的 multipart 写法被改了 | 不会：编辑器按值反推写法，不主动编辑就不重写 JSON，字典外自定义键也原样保留 |
+| `{{#file:…}}` 被报成「没有在 params 里声明」 | 先确认写的是带 `#` 的动态值（前端不认 `#`，不会误判）；如果确实写了 `{{参数}}`，就得在 `params` 里声明它 |
 
 ---
 
@@ -514,7 +567,10 @@ npm run check
 | 改界面 | `src/components/BackendPanel.vue`、`src/styles.css` |
 | 类型 TAB 的样式 / 宽度 / 筛选项 | `src/App.vue` 的 `typeTabs`、`src/store.js` 的 `filteredItems`、`.type-rail` 系列样式 |
 | 合并判重规则 / 冲突策略 / 开关行为 | `src/merge.js`（纯函数，改完补 `scripts/verify.mjs` 用例） |
-| 导入弹窗的模式选择、冲突预览、撤销入口 | `src/App.vue` 的 `importMode` / `mergePolicy` / `mergePreview`、`src/store.js` 的 `mergeJson` / `undoMerge`、`.import-*` / `.mp-*` 样式 |
+| 导入弹窗的模式选择、冲突预览、撤销入口 | `src/App.vue` 的 `importMode` / `mergePolicy` / `mergePreview`、`src/store.js` 的 `mergeJson` / `undoMerge`、`.import-*` / `.mp-*`（合并预览）样式 |
+| `multipart` 三种写法 / 文件子表 | `src/components/MultipartEditor.vue`、`src/styles.css` 的 `.mpart-*`、`src/schema.js` 的 `multipart` 字段定义、`src/model.js` 的 `ensureUsable` |
+| 动态值清单、展开面口径、模板生效字段 | `src/schema.js` 的 `DYNAMIC_VALUES` / `DYNAMIC_RULES` / `TEMPLATE_FIELDS`、`src/components/ReferencePanel.vue` / `KvEditor.vue` / `ParamsEditor.vue` |
+| `multipart` 校验规则 | `src/validate.js` 的 `normalizeMultipartForCheck` 与 `case 'multipart'` |
 | 单文件产物 | `vite.config.js` 的 `singleFileHtml()` 插件 |
 
 ---

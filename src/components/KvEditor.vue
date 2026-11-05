@@ -97,7 +97,7 @@ function insertDynamic() {
         <button class="btn sm" @click="insertDynamic">插入示例头</button>
       </div>
       <div class="hint-box">
-        <b>动态值只展开请求头</b>，由 AHK 在发送前算出，密钥不落 config.json。<br />
+        <b>动态值在 headers 与 body 都会展开</b>，由 AHK 在发送前算出，密钥不落 config.json。<br />
         <span v-for="(r, i) in DYNAMIC_RULES.slice(0, 3)" :key="i">· {{ r }}<br /></span>
       </div>
     </template>

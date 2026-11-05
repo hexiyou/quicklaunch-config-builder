@@ -183,4 +183,83 @@ chk('items / groups 无 ID 也一律追加',
   pNoId.totals.noId === 2 && m.mergeStates(base, incNoId, 'keep').state.items.length === base.items.length + 1)
 console.log(`  → 合并用例 ${mPass} 通过 / ${mFail} 失败`)
 
+/* ---------------------------------------------- 6. multipart / 动态值跟进 */
+console.log('\n📎 multipart 与动态值检查：')
+let qPass = 0
+let qFail = 0
+const ck = (name, cond, extra) => {
+  if (cond) { qPass += 1; console.log('  ✅ ' + name) }
+  else { qFail += 1; console.log('  ❌ ' + name + (extra ? ' | ' + extra : '')); process.exitCode = 1 }
+}
+
+ck('ITEM_FIELDS 含 multipart，且只对 webhook 生效',
+  !!m.ITEM_FIELD_MAP.multipart && m.ITEM_FIELD_MAP.multipart.applies.join(',') === 'webhook')
+ck('TEMPLATE_FIELDS 已补 multipart', m.TEMPLATE_FIELDS.includes('multipart'))
+ck('TEMPLATE_RULES 生效字段列了 multipart', m.TEMPLATE_RULES.some(r => r.includes('/ multipart')))
+ck('DYNAMIC_VALUES 补齐 4 个 file 系列',
+  ['{{#file:路径}}', '{{#file-raw:路径}}', '{{#filebase64:路径}}', '{{#filehash:sha256:路径}}']
+    .every(t => m.DYNAMIC_VALUES.some(d => d.tpl === t)))
+ck('DYNAMIC_RULES 口径改为 headers + body',
+  m.DYNAMIC_RULES.some(r => r.includes('headers 与 body 都展开')) &&
+  !m.DYNAMIC_RULES.some(r => r.includes('只展开请求头')))
+ck('新建 webhook 条目默认不写 multipart', !('multipart' in m.serializeItem(m.createItem('webhook'))))
+
+const skeleton = m.createItem('webhook')
+m.ensureUsable(skeleton, m.ITEM_FIELD_MAP.multipart)
+ck('打开开关给出「完整式 + 一条待填文件行」骨架',
+  skeleton.multipart && Array.isArray(skeleton.multipart.files) &&
+  skeleton.multipart.files.length === 1 && skeleton.multipart.files[0].field === 'file' &&
+  skeleton.multipart.fields && typeof skeleton.multipart.fields === 'object')
+
+const mpCases = [
+  ['完整式', { fields: { note: 'hi', tag: 'nightly' }, files: [{ field: 'photo', path: 'C:\\a.png', filename: 'a.png', type: 'image/png' }] }],
+  ['单文件简写', { field: 'file', path: 'C:\\a.png' }],
+  ['文件数组简写', [{ field: 'a', path: '1.png' }, { field: 'b', path: '2.png' }]],
+  ['path 的 file 别名 + 自定义键', { field: 'f', file: 'C:\\a.png', customKey: 42 }]
+]
+for (const [label, mp] of mpCases) {
+  const j = { items: [{ id: 'up', name: '上传', type: 'webhook', target: 'https://api.example.com/upload', multipart: mp }] }
+  let ok = true, err = ''
+  try { assert.deepStrictEqual(m.buildConfig(m.stateFromJson(j)), j) }
+  catch (e) { ok = false; err = e.message.slice(0, 160) }
+  ck(label + '：导入→导出逐字段无损', ok, err)
+  const errs = m.validateAll(m.stateFromJson(j)).filter(x => x.level === 'error')
+  ck(label + '：校验 0 错误', errs.length === 0, errs.map(x => x.msg).join(' / '))
+}
+
+const badStates = [
+  ['没有任何可用文件', { files: [{ field: 'a' }] }, /没有可用的文件/],
+  ['files 某项缺 path', { fields: { note: 'x' }, files: [{ field: 'a', path: '' }] }, /缺 path/],
+  ['空对象', {}, /没有可用的文件/],
+  ['值不是对象', 'oops', /必须是对象/]
+]
+for (const [label, mp, re] of badStates) {
+  const st = m.stateFromJson({ items: [{ id: 'up', name: '上传', type: 'webhook', target: 'https://x', multipart: mp }] })
+  const errs = m.validateAll(st).filter(x => x.level === 'error')
+  ck('校验拦截：' + label, errs.some(x => x.field?.startsWith('multipart') && re.test(x.msg)), JSON.stringify(errs.map(x => x.msg)))
+}
+
+const both = m.stateFromJson({ items: [{
+  id: 'up', name: '上传', type: 'webhook', target: 'https://x',
+  body: '{"a":1}', multipart: { field: 'f', path: 'C:\\a.png' }
+}] })
+ck('body 与 multipart 共存给出提醒而非报错',
+  m.validateAll(both).some(x => x.level === 'warn' && x.field === 'multipart' && /body 会被忽略/.test(x.msg)))
+
+const tplMp = m.stateFromJson({ items: [{
+  id: 'up', name: '上传', type: 'webhook', target: 'https://x',
+  multipart: { fields: { note: '来自 {{who}}' }, files: [{ field: 'f', path: '{{file}}' }] }
+}] }).items[0]
+ck('multipart 里的 {{参数}} 被模板体检扫到', m.itemTemplateVars(tplMp).sort().join(',') === 'file,who', JSON.stringify(m.itemTemplateVars(tplMp)))
+ck('未声明 params 时 multipart 的变量只警告不拦',
+  m.validateAll(m.stateFromJson({ items: [{ id: 'up', name: '上传', type: 'webhook', target: 'https://x', multipart: { fields: { n: '{{who}}' }, files: [] } }] }))
+    .some(x => x.level === 'warn' && x.field === 'params'))
+
+const dynIt = m.stateFromJson({ items: [{
+  id: 'up', name: '上传', type: 'webhook', target: 'https://x',
+  headers: { 'X-Auth': '{{#file:C:\\token.txt}}' }, body: '{{#filebase64:C:\\a.png}}'
+}] }).items[0]
+ck('{{#…}} 动态值不被误判成参数变量', m.itemTemplateVars(dynIt).length === 0, JSON.stringify(m.itemTemplateVars(dynIt)))
+console.log(`  → multipart / 动态值用例 ${qPass} 通过 / ${qFail} 失败`)
+
 console.log('\n完成。')

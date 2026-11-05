@@ -77,6 +77,12 @@ const expression = `(async () => {
   const R = [];
   const ok = (n, c, x) => R.push((c ? 'PASS' : 'FAIL') + ' | ' + n + (x ? ' | ' + x : ''));
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  // 固定等待会因 CDP / 网络抖动偶发漏判，改成轮询等到状态框落地
+  const waitFor = async (fn, ms = 8000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (fn()) return true; await wait(150); }
+    return false;
+  };
   const q = s => document.querySelector(s);
   const qa = s => Array.prototype.slice.call(document.querySelectorAll(s));
   const body = () => document.body.innerText;
@@ -92,11 +98,12 @@ const expression = `(async () => {
     await wait(350);
     const btn = q('.submit-pane .sp-row .btn.primary');
     if (btn) btn.click();
-    await wait(1400);
+    await waitFor(() => body().indexOf('提交成功') >= 0 || body().indexOf('提交失败') >= 0);
 
     ok('页面通过 HTTP 服务部署', location.protocol === 'http:', location.protocol);
     ok('确实发出了跨域 POST', (window.__QL_CALLS || []).some(c => c.url.indexOf('${BACKEND_PORT}') >= 0));
-    ok('提交状态显示成功', body().indexOf('提交成功') >= 0);
+    ok('提交状态显示成功', body().indexOf('提交成功') >= 0,
+      body().indexOf('提交失败') >= 0 ? '出现「提交失败」' : '状态未落地');
     ok('没有 file:// 拦截提示', body().indexOf('FILE_PROTOCOL') < 0);
 
     // 从浏览器跨源 GET 回读，等价于启动器「拉取在线配置」
