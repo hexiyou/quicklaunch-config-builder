@@ -9,7 +9,7 @@
  *   _key      列表渲染用的稳定 key。
  */
 import {
-  ITEM_FIELDS, GROUP_FIELDS, SCHEDULE_FIELDS, PARAM_FIELDS, TOP_FIELDS,
+  ITEM_FIELDS, GROUP_FIELDS, SCHEDULE_FIELDS, PARAM_FIELDS, TOP_FIELDS, CALLBACK_FIELDS,
   ITEM_FIELD_MAP, fieldApplies, TEMPLATE_FIELDS
 } from './schema.js'
 import sampleConfig from './sample.config.json'
@@ -124,11 +124,18 @@ export function createParam() {
   return p
 }
 
+/** 顶层 callback 是单例对象（不是数组），同样用 hydrate 带上 _include / _extra */
+export function createCallback() {
+  return hydrate({}, CALLBACK_FIELDS)
+}
+
 /* ----------------------------------------------------------- 顶层 state */
 
 export function emptyState() {
   return {
     meta: hydrate({}, TOP_FIELDS),
+    callback: createCallback(),
+    includeCallback: false,
     items: [],
     groups: [],
     schedules: [],
@@ -154,14 +161,27 @@ export function stateFromJson(json) {
   st.includeSchedules = Object.prototype.hasOwnProperty.call(src, 'schedules')
   // 顶层字典外的键（例如以后新增的字段）也留着
   st.meta._extra = {}
-  const known = new Set(['name', 'version', 'items', 'groups', 'schedules'])
+  const known = new Set(['name', 'version', 'items', 'groups', 'schedules', 'callback'])
   for (const [k, v] of Object.entries(src)) {
     if (!known.has(k)) st.meta._extra[k] = clone(v)
+  }
+  // callback（上游 d48be68）：顶层可选对象块。只有「非数组对象」才灌成结构化配置；
+  // 写成数组 / 字符串 / null 之类的坏值不当场改写，原样留在 _extra 里由校验器报错，
+  // 这样导入→导出仍然逐字段无损，用户能在 JSON 预览里看到原始值。
+  if (Object.prototype.hasOwnProperty.call(src, 'callback')) {
+    const cb = src.callback
+    if (cb && typeof cb === 'object' && !Array.isArray(cb)) {
+      st.callback = hydrate(cb, CALLBACK_FIELDS)
+      st.includeCallback = true
+    } else {
+      st.meta._extra.callback = clone(cb)
+    }
   }
   return st
 }
 
-/** 导出：按 README 示例的字段顺序生成最终 config.json 对象 */
+/** 导出：按 README 示例的字段顺序生成最终 config.json 对象。
+ *  callback 是后加的顶层可选块，刻意排在末尾 —— 老配置的导出顺序一个字不变。 */
 export function buildConfig(state) {
   const out = {}
   for (const f of TOP_FIELDS) {
@@ -173,6 +193,8 @@ export function buildConfig(state) {
   out.items = state.items.map(it => serializeItem(it))
   if (state.includeGroups) out.groups = state.groups.map(g => dehydrate(g, GROUP_FIELDS))
   if (state.includeSchedules) out.schedules = state.schedules.map(s => dehydrate(s, SCHEDULE_FIELDS))
+  // 不写这个键 = 上游全走默认值（enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify）
+  if (state.includeCallback) out.callback = dehydrate(state.callback || createCallback(), CALLBACK_FIELDS)
   return out
 }
 

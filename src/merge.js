@@ -9,7 +9,7 @@
  *    都从它生成的操作序列推导，保证「看到的」和「执行的」永远一致。
  *  - 冲突策略是整条级：keep = 跳过导入那条；replace = 整条替换。
  *    replace 时保留原位置与原 _key，列表顺序和当前选中项都不会跳。
- *  - 顶层 name / version / 顶层自定义键一律保留现有值，合并只动三个数组。
+ *  - 顶层 name / version / callback 块 / 顶层自定义键一律保留现有值，合并只动三个数组。
  */
 import { clone } from './model.js'
 
@@ -125,6 +125,8 @@ export function mergeStates(current, incoming, policy = 'keep') {
   return {
     state: {
       meta: current.meta,
+      callback: current.callback,
+      includeCallback: Boolean(current.includeCallback),
       items: result.items,
       groups: result.groups,
       schedules: result.schedules,

@@ -66,9 +66,9 @@ export const ITEM_TYPES = [
   },
   {
     value: 'jsonfile',
-    label: 'jsonfile · 本地 JSON',
-    desc: '读本地一个 JSON 文件并显示成树，借 webhook 那套 JSON 树 / Ctrl+F / jsonPath。不联网、不发请求。大小上限 8 MB，自动认 BOM，无 BOM 的 GBK 会按 936 再读一次。',
-    targetHint: 'file://c:\\app\\data.json 或 C:\\data.json 或 data\\x.json'
+    label: 'jsonfile · 本地配置',
+    desc: '读本地一个配置文件（JSON / YAML / TOML，按扩展名选解析器，不从内容猜）并显示成树，借 webhook 那套 JSON 树 / Ctrl+F / jsonPath。不联网、不发请求。.yaml / .toml 上限 2 MB，其余 8 MB；自动认 BOM，无 BOM 的 GBK 会按 936 再读一次。',
+    targetHint: 'file://c:\\app\\data.yaml 或 C:\\data.toml 或 data\\x.json'
   }
 ]
 
@@ -81,6 +81,12 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
 export const ON_EXISTS = [
   { value: 'skip', label: 'skip · 跳过（默认）' },
   { value: 'overwrite', label: 'overwrite · 覆盖' }
+]
+
+/** 顶层 callback.onQuiet：只有写 popup（忽略大小写）才改行为，其余一律 notify */
+export const ON_QUIET = [
+  { value: 'notify', label: 'notify · 托盘提示 + 日志（默认）' },
+  { value: 'popup', label: 'popup · 照常弹消息框' }
 ]
 
 export const PARAM_TYPES = [
@@ -268,7 +274,7 @@ export const ITEM_FIELDS = [
   {
     key: 'headers', label: '请求头 headers', kind: 'kv', section: 'webhook', required: false,
     default: null, applies: ['webhook', 'download'],
-    desc: '请求头。数组形式时每条形如 "Name: Value"。可写 {{#ts}} / {{#env:…}} / {{#file:…}} / {{#base64:…}} / {{#hmac:…}} 等动态值，由 AHK 在发送前展开；headers 与 body 都展开，密钥不落配置文件。带请求体又没指定 Content-Type 时，默认加 application/json; charset=utf-8；写了 multipart 时 Content-Type 由程序自己拼，你在 headers 里写了就不覆盖。',
+    desc: '请求头。数组形式时每条形如 "Name: Value"。可写 {{#ts}} / {{#env:…}} / {{#file:…}} / {{#base64:…}} / {{#hmac:…}} 等动态值，由 AHK 在发送前展开；webhook 的 headers 与 body 都展开，download 只有 headers 也走同一套展开。target / query / multipart 不展开。密钥不落配置文件。带请求体又没指定 Content-Type 时，默认加 application/json; charset=utf-8；写了 multipart 时 Content-Type 由程序自己拼，你在 headers 里写了就不覆盖。',
     format: '对象 {"X-Token":"abc"} 或数组 ["Name: Value"]',
     doc: '四、配置说明 → webhook 类型 / 发送前展开的动态值'
   },
@@ -306,8 +312,8 @@ export const ITEM_FIELDS = [
   {
     key: 'savePath', label: '保存目录 savePath', kind: 'text', section: 'download', required: false,
     default: '', applies: ['download'],
-    desc: '保存目录。支持相对路径（按脚本目录解析）、%USERPROFILE% / %TEMP% 环境变量、UNC 路径；不存在会自动创建（含多级）。"." = 脚本目录。',
-    format: '路径字符串 · 缺省 = 系统「下载」目录；支持 {{变量}} 模板',
+    desc: '保存目录。支持相对路径（按脚本目录解析）、%USERPROFILE% / %TEMP% 环境变量、UNC 路径；不存在会自动创建（含多级）。缺省 = %USERPROFILE%\\Downloads。',
+    format: '路径字符串 · 缺省 %USERPROFILE%\\Downloads；支持 {{变量}} 模板',
     placeholder: '%USERPROFILE%\\Downloads',
     doc: '四、配置说明 → download 类型 / 拉取在线配置'
   },
@@ -426,13 +432,13 @@ export const SCHEDULE_FIELDS = [
   {
     key: 'at', label: '固定时刻 at', kind: 'times', required: false, default: '',
     desc: '"HH:MM" 或 "HH:MM:SS"；也可以写成数组，表示一天跑多次。和 every 必须二选一。错过（关机 / 休眠）不补跑。',
-    format: 'HH:MM / HH:MM:SS 或它们的数组 · 时 0-23、分秒 0-59',
+    format: 'HH:MM / HH:MM:SS 或它们的数组 · 时 0-23、分秒 0-59；时、分可只写一位（9:30 认）',
     placeholder: '09:30'
   },
   {
     key: 'every', label: '固定间隔 every', kind: 'every', required: false, default: '',
     desc: '"30s" / "15m" / "2h"（也认 秒 / 分 / 分钟 / 小时），最短 30 秒、最长 30 天，从程序启动那一刻起算。锚点是上一次的计划时刻，不是执行完成的时刻。和 at 必须二选一。',
-    format: '数字 + s|m|h，30 秒 ≤ 间隔 ≤ 2592000 秒',
+    format: '数字 + s|m|h，30 秒 ≤ 间隔 ≤ 2592000 秒（30 天）；也认纯数字（按秒）与 30秒 / 2小时',
     placeholder: '6h'
   },
   {
@@ -456,6 +462,70 @@ export const SCHEDULE_FIELDS = [
     desc: '默认 true：多个条目都能匹配时取最高分那条；写 false 则要求唯一命中，歧义就算失败。',
     format: '布尔 · 缺省 true'
   }
+]
+
+/* -------------------------------- 顶层 callback 回调块（上游 d48be68） */
+
+/**
+ * 上游 d48be68 新增：config.json 顶层可选 "callback"，不写就是默认值，老配置不用改。
+ * 字段口径以 wv2-launcher/ui/app.js 的 cbCfg() / cbPlan() 为准，并对照 README
+ *「回调：响应里带 _ql_callback 就执行本地动作」逐条核过：
+ *   enabled   c.enabled !== false            → 只有布尔 false 才关
+ *   max       clamp(v, 5)                   → 数字夹进 1~20 并取整，非数字退默认 5
+ *   maxDepth  同上，两个上限互相独立
+ *   allow     Array.isArray ? map(String):[] → 非空时按小写比对条目 id
+ *   onQuiet   'popup'（忽略大小写）→ popup，其余一律 notify
+ */
+export const CALLBACK_FIELDS = [
+  {
+    key: 'enabled', label: '启用回调 enabled', kind: 'boolean', required: false, default: true,
+    desc: '总开关。false = 整块忽略 _ql_callback，连日志都不写。只有布尔 false 才算关（代码 c.enabled !== false）；写成 "false" / 0 / null 一律按启用。',
+    format: '布尔 · 缺省 true',
+    doc: '四、配置说明 → 回调 · 开关与白名单'
+  },
+  {
+    key: 'max', label: '单次动作上限 max', kind: 'number', required: false, default: 5,
+    desc: '一次响应最多执行几个动作，多的截断并记日志。与 maxDepth 互相独立（一个管单次响应，一个管链深）。',
+    format: '整数 1~20 · 缺省 5；写了数字会被夹进 1~20（写 0 = 夹到 1，不是「禁用」）',
+    doc: '四、配置说明 → 回调 · 开关与白名单'
+  },
+  {
+    key: 'maxDepth', label: '回调链深度 maxDepth', kind: 'number', required: false, default: 5,
+    desc: '一条回调链最多几跳；配合「祖先链」防环，链深达到上限就阻断，日志写「链深已达上限」。',
+    format: '整数 1~20 · 缺省 5',
+    doc: '四、配置说明 → 回调 · 防环 / 开关与白名单'
+  },
+  {
+    key: 'allow', label: '可拉起条目白名单 allow', kind: 'tags', required: false, default: [],
+    desc: '非空时只有列出的条目 id 能被 run 动作拉起（按小写比对）。远端能间接决定「跑哪条命令」，得留个闸；空数组 = 不限制。',
+    format: '字符串数组 · 缺省 []；每项建议引用 items[].id',
+    placeholder: 'open-backup-dir, sync-cfg',
+    doc: '四、配置说明 → 回调 · 开关与白名单'
+  },
+  {
+    key: 'onQuiet', label: '静默链提示方式 onQuiet', kind: 'select', required: false, default: 'notify',
+    options: ON_QUIET,
+    desc: '「有没有人在看」沿链继承：定时任务触发的链，notify = 托盘提示 + 日志不弹模态框，popup = 照常弹框。手动点出来的链第二跳照常弹。',
+    format: 'notify | popup · 缺省 notify（只有写 popup，忽略大小写，才改成 popup）',
+    doc: '四、配置说明 → 回调 · 两个 quiet / 开关与白名单'
+  }
+]
+
+export const CALLBACK_FIELD_MAP = Object.fromEntries(CALLBACK_FIELDS.map(f => [f.key, f]))
+
+/** 速查面板用：回调的运行时约定（这些不是配置字段，但决定了上面五个值怎么填） */
+export const CALLBACK_RULES = [
+  '响应 JSON 的根对象第一层带 _ql_callback 才触发；{"data":{"_ql_callback":…}} 这类深层同名不触发（防撞 + 防误伤）。',
+  '没有这个键时一切照旧 —— 现有接口一个字都不用改；整个 callback 块不写也全走默认值。',
+  'actions 按顺序执行，两类：msg（text 必填；level 认 success/error 及 ok/fail，title 默认 QuickLaunch，timeout 秒、0/缺省 = 不自动关）；run（id，等同 ql run <id>，8 种 type 都能拉）。',
+  '宽容写法：_ql_callback 直接是数组 / 单个动作对象、actions 给成单个对象都认；msg / run 还认 popup / exec 别名。',
+  '_ql_callback.v 是协议版本，缺省按 1；写成 2 这类更大的数会被整块忽略并记日志（老程序不被新协议带偏）。',
+  '先回执、再执行：结果面板/命令行的回执先落地，回调副作用推到下一拍，模态消息框不会把 ql run x --wait 堵住。',
+  '防环判「祖先」不判「访问过」：A 同时调 B 和 C 都放行（兄弟），B 再调回 A 才挡；链深到 maxDepth 也阻断。',
+  '链上的请求一律 quiet（不占结果面板）；onQuiet 决定定时任务触发的链弹不弹模态框，手动点出来的链不受影响。',
+  'run 的忽略清单全部静默跳过、只记日志：id 不存在、enabled:false、缺必填参数、模板变量写错、不在 allow 白名单。',
+  '错误响应（HTTP 4xx/5xx）同样能回调，正文照常拿得到；日志在 launcher.log，每条带 [cb] 前缀与时间戳。',
+  '单跑 ql --webhook spec.ini 不执行回调（那个进程发完请求就退，没有启动器实例，也没有「谁来看框」）。'
 ]
 
 /* ------------------------------------------------------------- 参考手册 */
@@ -484,6 +554,8 @@ export const DYNAMIC_VALUES = [
 export const DYNAMIC_RULES = [
   '# 是关键：前端不认它，原样交给 AHK，避免和 params 变量冲突。',
   '展开面：headers 与 body 都展开（body 可整个来自 {{#file:…}}，等价 curl --data-binary @x）；file 参数的路径本身也展开。',
+  '适用面只有请求头（webhook / download 都算）和 webhook 的 body；target / query / multipart 的字段值不展开，写了会原样发出去（query 还会被百分号编码）。',
+  'download 只有 headers（它不发请求体），那一层走同一套展开；multipart 里的 {{#ts}} 也不展开，只有前端的 {{参数}} 生效。',
   '认不出来的一律原样保留（大小写敏感），不会误伤老配置里的字面量。',
   '密钥名写错、环境变量取不到、展开后带 CR/LF（请求头注入）都会拒发。',
   '{{#file:…}} 默认裁尾部换行，{{#file-raw:…}} 才保留；二进制文件改用 {{#filebase64:…}} 或 multipart。',
@@ -520,7 +592,8 @@ export const README_NOTES = [
   { title: '布尔写法', text: 'enabled 只有 false 算停用，hidden 只有 true 算隐藏，runOnStart 只有 true 算生效。写成字符串 / 0 / 1 一律按缺省处理。' },
   { title: '分组', text: '分组只影响过滤，不影响启动；条目没有 group 就归「未分组」；groups 不写也能跑（只是没有胶囊栏）。' },
   { title: '定时调度', text: 'at 与 every 必须二选一，days 只跟 at 搭；写错的那一条只跳过自己，原因写进 sched.log，不影响别的任务。不配 schedules 连日志都不会生成。' },
-  { title: '请求失败排查', text: '带状态码（401/403/429/503）是服务端回话了；没有状态码（DNS / TLS / 超时 / 连接被中断）是根本没聊上。' }
+  { title: '请求失败排查', text: '带状态码（401/403/429/503）是服务端回话了；没有状态码（DNS / TLS / 超时 / 连接被中断）是根本没聊上。' },
+  { title: '回调（顶层 callback）', text: '整个块可选，不写就是 enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify。响应根对象第一层带 _ql_callback 才触发；allow 非空时只有列出的 id 能被 run 拉起。' }
 ]
 
 /* --------------------------------------------------------------- 工具 */

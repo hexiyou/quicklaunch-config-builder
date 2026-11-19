@@ -370,6 +370,90 @@ const inject = `
       ok('速查口径为 headers 与 body 都展开', body().indexOf('headers 与 body 都展开') >= 0);
       ok('速查不再出现「只展开请求头」', body().indexOf('只展开请求头') < 0);
       ok('速查生效字段列了 multipart', body().indexOf('multipart') >= 0);
+
+      /* ---------------- 顶层 callback 回调块（上游 d48be68） ---------------- */
+      outTab('生成的 JSON'); await wait(320);
+      tab('回调 callback'); await wait(420);
+      ok('左侧新增「回调 callback」页', body().indexOf('回调 callback') >= 0);
+      ok('回调页说明「不写就是默认值」', body().indexOf('不写就是默认值') >= 0);
+      ok('回调页说明响应带 _ql_callback 才触发', body().indexOf('_ql_callback') >= 0);
+      const cbSwitch = () => qa('.editor-panel .switch').find(s => (s.textContent || '').indexOf('输出 callback 块') >= 0);
+      const cbRows = () => qa('.editor-panel .field-row');
+      const cbRow = k => cbRows().find(r => (r.querySelector('.field-key')?.textContent || '').trim() === k);
+      const cbCfg = () => (cfg() ? cfg().callback : undefined);
+      ok('回调页有输出开关', !!cbSwitch());
+      ok('初始不写 callback：JSON 里没有该键', cbCfg() === undefined, JSON.stringify(cbCfg()));
+      ok('未启用时不渲染字段表', cbRows().length === 0, cbRows().length + ' 行');
+
+      cbSwitch().click(); await wait(450);
+      ok('启用后输出空 callback 块（不注入默认值）', JSON.stringify(cbCfg()) === '{}', JSON.stringify(cbCfg()));
+      ok('启用后渲染 5 个字段', cbRows().length === 5, cbRows().length + ' 行');
+      ok('5 个字段名齐全', ['enabled', 'max', 'maxDepth', 'allow', 'onQuiet'].every(k => !!cbRow(k)));
+      ok('callback 排在导出 JSON 末尾', Object.keys(cfg() || {}).at(-1) === 'callback', Object.keys(cfg() || {}).join(','));
+
+      cbRow('max').querySelector('.include-toggle').click(); await wait(380);
+      const maxInput = cbRow('max').querySelector('input[type="number"]');
+      maxInput.value = '9';
+      maxInput.dispatchEvent(new Event('input', { bubbles: true })); await wait(420);
+      ok('填写 max 后 JSON 实时写入', cbCfg()?.max === 9, JSON.stringify(cbCfg()));
+
+      cbRow('onQuiet').querySelector('.include-toggle').click(); await wait(380);
+      const quietSel = cbRow('onQuiet').querySelector('select');
+      quietSel.value = 'popup';
+      quietSel.dispatchEvent(new Event('change', { bubbles: true })); await wait(420);
+      ok('onQuiet=popup 写入 JSON', cbCfg()?.onQuiet === 'popup', JSON.stringify(cbCfg()));
+
+      cbRow('allow').querySelector('.include-toggle').click(); await wait(380);
+      const allowInput = cbRow('allow').querySelector('input.input');
+      allowInput.value = 'open-backup-dir';
+      allowInput.dispatchEvent(new Event('input', { bubbles: true })); await wait(120);
+      allowInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await wait(420);
+      ok('allow 白名单写入 JSON', Array.isArray(cbCfg()?.allow) && cbCfg().allow[0] === 'open-backup-dir', JSON.stringify(cbCfg()));
+
+      // 越界值给 warn 而不是 error：切换输出页到「校验」
+      maxInput.value = '0';
+      maxInput.dispatchEvent(new Event('input', { bubbles: true })); await wait(350);
+      outTab('校验'); await wait(420);
+      ok('max=0 在校验页给出「夹成 1」提醒', body().indexOf('夹成 1') >= 0);
+      outTab('生成的 JSON'); await wait(350);
+
+      // 导入带 callback 的配置：自动结构化、字典外子键无损、位置仍在末尾
+      const cbImport = { name: 'CBIMPORT', items: [], callback: { enabled: false, max: 12, maxDepth: 3, onQuiet: 'popup', zzz: { a: 1 } } };
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify(cbImport)); await wait(320);
+      q('#do-import-btn').click(); await wait(560);
+      ok('导入含 callback 的配置自动结构化', cbCfg()?.max === 12 && cbCfg()?.onQuiet === 'popup' && cbCfg()?.enabled === false,
+        JSON.stringify(cbCfg()));
+      ok('callback 内字典外子键逐字段无损', cbCfg()?.zzz?.a === 1, JSON.stringify(cbCfg()));
+      ok('导入后 callback 仍排在末尾', Object.keys(cfg() || {}).at(-1) === 'callback');
+      tab('回调 callback'); await wait(420);
+      ok('导入后字段开关自动勾上对应项', cbRow('max') && !cbRow('max').classList.contains('is-off'));
+      ok('导入后开关显示为已启用', !!cbSwitch() && cbSwitch().classList.contains('on'));
+
+      // 合并导入：顶层 callback 保留现有，不被导入文件覆盖
+      const mergeCb = JSON.stringify({ name: 'SHOULD-NOT-APPEAR', items: [{ id: 'new-one', name: '新条目', type: 'app', target: 'x.exe' }], callback: { max: 2 } });
+      topBtn('导入 config.json'); await wait(320);
+      q('#import-mode-merge').click(); await wait(320);
+      paste(mergeCb); await wait(360);
+      q('#do-import-btn').click(); await wait(560);
+      ok('合并导入保留现有 callback（不采用导入文件的 max=2）', cbCfg()?.max === 12, JSON.stringify(cbCfg()));
+      ok('合并导入仍保留现有顶层字段', code().indexOf('CBIMPORT') >= 0 && code().indexOf('SHOULD-NOT-APPEAR') < 0);
+
+      // 全量覆盖则按导入文件重置 callback（保持既有覆盖语义）
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify({ name: 'CBFULL', items: [] })); await wait(320);
+      q('#do-import-btn').click(); await wait(520);
+      ok('全量覆盖会移除导入文件中没有的 callback', cbCfg() === undefined, JSON.stringify(cbCfg()));
+
+      // 速查页新增 callback 字段表
+      tab('字段速查'); await wait(420);
+      ok('速查顶层字段表列出 callback', body().indexOf('顶层可选回调块') >= 0);
+      ok('速查 callback 专章含 5 个字段', body().indexOf('顶层 callback 回调块（5 个字段）') >= 0);
+      ok('速查 callback 默认值说明', body().indexOf('maxDepth=5') >= 0);
+
+      // 配置总览也有开关
+      tab('配置总览'); await wait(420);
+      ok('配置总览提供 callback 开关', body().indexOf('输出 callback（顶层可选块）') >= 0);
     } catch (e) {
       R.push('FAIL | 脚本异常 | ' + (e && e.message ? e.message : e));
     }
@@ -392,9 +476,9 @@ try {
   dom = execFileSync(browser, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--user-data-dir=' + path.join(os.tmpdir(), 'ql-ui-check-profile-' + Date.now()),
-    '--virtual-time-budget=45000', '--dump-dom',
+    '--virtual-time-budget=65000', '--dump-dom',
     'file:///' + tmp.replace(/\\/g, '/')
-  ], { encoding: 'utf-8', maxBuffer: 30 * 1024 * 1024, timeout: 90000, stdio: ['ignore', 'pipe', 'ignore'] })
+  ], { encoding: 'utf-8', maxBuffer: 30 * 1024 * 1024, timeout: 120000, stdio: ['ignore', 'pipe', 'ignore'] })
 } catch (e) {
   console.error('浏览器执行失败：' + e.message)
   process.exit(1)

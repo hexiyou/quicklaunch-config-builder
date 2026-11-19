@@ -64,6 +64,63 @@ export function validateAll(state) {
     if (!Number.isInteger(v) || v < 1) push('error', '顶层', 'version', 'version 必须是 ≥ 1 的整数。')
   }
 
+  /* ---------------- 顶层 callback（上游 d48be68） ----------------
+     口径对齐 ui/app.js 的 cbCfg() / cbPlan()：夹 1~20、非数字退默认、
+     allow 小写比对、onQuiet 只认 popup。写错大多是「被静默处理」而不是报错，
+     所以这里以 warn 为主，只有类型硬错才升级成 error。 */
+  const cbWhere = '顶层 · callback'
+  if (Object.prototype.hasOwnProperty.call(state.meta._extra || {}, 'callback')) {
+    push('error', cbWhere, 'callback',
+      'callback 必须是对象 {...}；现在这个值不是对象，启动器的 cbCfg() 会整块忽略它。')
+  }
+  if (state.includeCallback) {
+    const cb = state.callback || {}
+    const inc = k => !!cb._include?.[k]
+
+    if (inc('enabled') && typeof cb.enabled !== 'boolean') {
+      push('error', cbWhere, 'enabled', 'enabled 必须是布尔 true/false；只有布尔 false 才会关闭回调，写成字符串 / 数字一律按启用。')
+    }
+    for (const k of ['max', 'maxDepth']) {
+      if (!inc(k)) continue
+      const v = cb[k], n = Number(v)
+      if (v === '' || v == null || !Number.isFinite(n)) {
+        push('warn', cbWhere, k, `${k} 不是数字，程序会退回默认值 5。`)
+      } else if (!Number.isInteger(n)) {
+        push('warn', cbWhere, k, `${k}=${n} 不是整数，程序会取整并夹进 1~20。`)
+      } else if (n < 1 || n > 20) {
+        push('warn', cbWhere, k, `${k}=${n} 超出 1~20，程序会夹成 ${Math.max(1, Math.min(20, n))}（写 0 不是「禁用」）。`)
+      }
+    }
+    if (inc('allow')) {
+      const list = cb.allow
+      if (!Array.isArray(list)) {
+        push('error', cbWhere, 'allow', 'allow 必须是字符串数组；写成别的类型会被当成空数组（不限制）。')
+      } else {
+        if (list.some(x => typeof x !== 'string')) {
+          push('error', cbWhere, 'allow', 'allow 里只能放字符串（条目 id）；非字符串会被 String() 强转。')
+        }
+        const ids = new Set(state.items.map(i => String(i.id ?? '').trim().toLowerCase()).filter(Boolean))
+        list.filter(x => typeof x === 'string' && x.trim()).forEach(x => {
+          if (ids.size && !ids.has(x.trim().toLowerCase())) {
+            push('warn', cbWhere, 'allow', `白名单里的「${x}」不是现有条目的 id；回调 run 它时会被静默跳过（只记日志）。`)
+          }
+        })
+      }
+    }
+    if (inc('onQuiet')) {
+      const v = String(cb.onQuiet ?? '')
+      if (!['notify', 'popup'].includes(v.toLowerCase())) {
+        push('warn', cbWhere, 'onQuiet', `onQuiet 只能是 notify / popup；「${v}」会按 notify 处理（只有 popup 才改变行为）。`)
+      }
+    }
+    if (inc('enabled') && cb.enabled === false && (inc('max') || inc('maxDepth') || inc('allow') || inc('onQuiet'))) {
+      push('warn', cbWhere, 'enabled', 'enabled:false 时整块回调被忽略，其余字段写了也不生效。')
+    }
+    for (const k of Object.keys(cb._extra || {})) {
+      push('warn', cbWhere, k, `callback.${k} 不在上游字段表里，会原样写进 JSON，但启动器不会读取。`)
+    }
+  }
+
   /* ---------------- 分组 ---------------- */
   const groupIds = new Set()
   state.groups.forEach((g, i) => {

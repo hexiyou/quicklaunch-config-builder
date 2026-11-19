@@ -51,7 +51,7 @@ try {
       }
     }
   }
-  for (const key of ['name', 'version', 'groups', 'schedules']) {
+  for (const key of ['name', 'version', 'groups', 'schedules', 'callback']) {
     try { assert.deepStrictEqual(out[key], source[key]) }
     catch (err) { console.log(`  顶层 ${key} 不一致`) }
   }
@@ -261,5 +261,128 @@ const dynIt = m.stateFromJson({ items: [{
 }] }).items[0]
 ck('{{#…}} 动态值不被误判成参数变量', m.itemTemplateVars(dynIt).length === 0, JSON.stringify(m.itemTemplateVars(dynIt)))
 console.log(`  → multipart / 动态值用例 ${qPass} 通过 / ${qFail} 失败`)
+
+/* ---------------------------------------------- 7. 顶层 callback 跟进（上游 d48be68） */
+console.log('\n↺ 顶层 callback 检查：')
+let bPass = 0
+let bFail = 0
+const bc = (name, cond, extra) => {
+  if (cond) { bPass += 1; console.log('  ✅ ' + name) }
+  else { bFail += 1; console.log('  ❌ ' + name + (extra ? ' | ' + extra : '')); process.exitCode = 1 }
+}
+const same = (a, b) => { try { assert.deepStrictEqual(a, b); return true } catch (e) { return false } }
+const cbIssues = st => m.validateAll(st).filter(x => x.where === '顶层 · callback')
+
+/* 7.1 字段字典与默认值口径 */
+bc('CALLBACK_FIELDS 为上游的 5 个字段',
+  m.CALLBACK_FIELDS.map(f => f.key).join(',') === 'enabled,max,maxDepth,allow,onQuiet',
+  m.CALLBACK_FIELDS.map(f => f.key).join(','))
+bc('5 个字段全部是可选，且默认值与 cbCfg() 一致',
+  m.CALLBACK_FIELDS.every(f => f.required === false) &&
+  m.CALLBACK_FIELD_MAP.enabled.default === true &&
+  m.CALLBACK_FIELD_MAP.max.default === 5 &&
+  m.CALLBACK_FIELD_MAP.maxDepth.default === 5 &&
+  same(m.CALLBACK_FIELD_MAP.allow.default, []) &&
+  m.CALLBACK_FIELD_MAP.onQuiet.default === 'notify')
+bc('onQuiet 枚举只有 notify / popup',
+  m.CALLBACK_FIELD_MAP.onQuiet.options.map(o => o.value).join(',') === 'notify,popup')
+bc('速查新增 callback 行为约定与 README 条目',
+  m.CALLBACK_RULES.length >= 8 && m.README_NOTES.some(n => n.title.includes('callback')))
+
+/* 7.2 缺省不写：老配置的导出顺序一个字不变 */
+const plain = { name: 'X', version: 1, items: [], groups: [], schedules: [] }
+const plainOut = m.buildConfig(m.stateFromJson(plain))
+bc('没有 callback 时导出不含这个键',
+  !Object.prototype.hasOwnProperty.call(plainOut, 'callback'), JSON.stringify(Object.keys(plainOut)))
+bc('没有 callback 时顶层键顺序与旧版完全一致',
+  Object.keys(plainOut).join(',') === 'name,version,items,groups,schedules', Object.keys(plainOut).join(','))
+bc('emptyState() 默认 includeCallback=false', m.emptyState().includeCallback === false)
+
+/* 7.3 结构化导入 / 导出 */
+const cbFull = {
+  enabled: false, max: 3, maxDepth: 9, allow: ['a'], onQuiet: 'popup',
+  futureKey: { nested: 1 }          // 字典外子键也要原样留住
+}
+const jCb = { name: 'X', version: 1, items: [], callback: cbFull }
+const stCb = m.stateFromJson(jCb)
+const outCb = m.buildConfig(stCb)
+bc('callback 是对象时结构化导入（includeCallback=true）', stCb.includeCallback === true)
+bc('callback 逐字段导入→导出无损（含字典外子键）', same(outCb, jCb), JSON.stringify(outCb))
+bc('callback 排在导出 JSON 末尾', Object.keys(outCb).at(-1) === 'callback', Object.keys(outCb).join(','))
+bc('callback 不在 meta._extra 里重复存一份',
+  !Object.prototype.hasOwnProperty.call(stCb.meta._extra, 'callback'))
+bc('空 callback 块输出 {}，不擅自注入默认值',
+  same(m.buildConfig(m.stateFromJson({ items: [], callback: {} })).callback, {}))
+
+/* 7.4 坏值不当场改写：原样保留 + 校验报错 */
+for (const [label, bad] of [['数组', ['x']], ['字符串', 'oops'], ['null', null]]) {
+  const j = { name: 'X', version: 1, items: [], callback: bad }
+  const stBad = m.stateFromJson(j)
+  bc(`callback 写成${label}：不结构化、导入→导出仍无损`,
+    stBad.includeCallback === false && same(m.buildConfig(stBad), j), JSON.stringify(m.buildConfig(stBad)))
+  bc(`callback 写成${label}：校验给出 error`,
+    cbIssues(stBad).some(x => x.level === 'error' && x.field === 'callback'))
+}
+
+/* 7.5 校验引擎 */
+function cbState(fields, items = []) {
+  const st = m.stateFromJson({ items, callback: {} })
+  for (const [k, v] of Object.entries(fields)) {
+    m.setInclude(st.callback, m.CALLBACK_FIELD_MAP[k], true)
+    st.callback[k] = v
+  }
+  return st
+}
+bc('合法 callback 全字段：0 错误 0 提醒',
+  cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup' })).length === 0,
+  JSON.stringify(cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup' }))))
+bc('enabled 写成字符串被拦成 error',
+  cbIssues(cbState({ enabled: 'false' })).some(x => x.level === 'error' && x.field === 'enabled'))
+for (const [label, val, re] of [
+  ['max=0', 0, /夹成 1/], ['maxDepth=25', 25, /超出 1~20/],
+  ['max 非数字', 'abc', /不是数字/], ['max 小数', 2.5, /不是整数/]
+]) {
+  const key = label.startsWith('maxDepth') ? 'maxDepth' : 'max'
+  bc(label + ' 给出 warn 而非 error',
+    cbIssues(cbState({ [key]: val })).some(x => x.level === 'warn' && x.field === key && re.test(x.msg)),
+    JSON.stringify(cbIssues(cbState({ [key]: val })).map(x => x.msg)))
+}
+bc('allow 不是数组 / 含非字符串 → error',
+  cbIssues(cbState({ allow: 'a' })).some(x => x.level === 'error' && x.field === 'allow') &&
+  cbIssues(cbState({ allow: [1] })).some(x => x.level === 'error' && x.field === 'allow'))
+const realItems = [{ id: 'open-backup-dir', name: '备份', type: 'app', target: 'C:\\x.exe' }]
+bc('allow 引用不存在的条目 id → warn；大小写不同的现有 id 不报',
+  cbIssues(cbState({ allow: ['ghost'] }, realItems)).some(x => x.level === 'warn' && /白名单/.test(x.msg)) &&
+  cbIssues(cbState({ allow: ['OPEN-BACKUP-DIR'] }, realItems)).length === 0)
+bc('onQuiet 写错值 → warn（按 notify 处理）',
+  cbIssues(cbState({ onQuiet: 'loud' })).some(x => x.level === 'warn' && x.field === 'onQuiet'))
+bc('enabled:false 同时写其它字段 → 提醒不生效',
+  cbIssues(cbState({ enabled: false, max: 3 })).some(x => x.level === 'warn' && /不生效/.test(x.msg)))
+const stUnknown = cbState({})
+stUnknown.callback._extra.futureKey = 1
+bc('callback 内字典外子键 → warn（会原样写出但不被读取）',
+  cbIssues(stUnknown).some(x => x.level === 'warn' && x.field === 'futureKey'))
+
+/* 7.6 合并导入：顶层 callback 一律保留现有（合并只动三个数组） */
+const curCb = m.stateFromJson({ name: 'cur', version: 1, items: [], callback: { max: 7 } })
+const incCb = m.stateFromJson({ name: 'inc', version: 9, items: [], callback: { max: 2, onQuiet: 'popup' } })
+for (const policy of ['keep', 'replace']) {
+  const { state: ms } = m.mergeStates(curCb, incCb, policy)
+  bc(`合并策略 ${policy}：保留现有 callback`,
+    ms.includeCallback === true && ms.callback.max === 7 && !ms.callback._include.onQuiet &&
+    ms.meta.name === 'cur')
+}
+bc('合并预览不把 callback 列进冲突清单',
+  m.analyzeMerge(curCb, incCb, 'keep').conflictIds.length === 0)
+
+/* 7.7 顺带对齐的上游文案口径 */
+bc('jsonfile 文案已补 YAML / TOML', /YAML \/ TOML/.test(m.TYPE_MAP.jsonfile.desc))
+bc('headers 文案已补 download 也走动态值展开', /download 只有 headers/.test(m.ITEM_FIELD_MAP.headers.desc))
+bc('savePath 缺省口径改为 %USERPROFILE%\\Downloads',
+  /%USERPROFILE%\\Downloads/.test(m.ITEM_FIELD_MAP.savePath.format))
+bc('at / every 文案已补宽松写法',
+  /时、分可只写一位/.test(m.SCHEDULE_FIELDS.find(f => f.key === 'at').format) &&
+  /纯数字/.test(m.SCHEDULE_FIELDS.find(f => f.key === 'every').format))
+console.log(`  → callback / 文案口径用例 ${bPass} 通过 / ${bFail} 失败`)
 
 console.log('\n完成。')

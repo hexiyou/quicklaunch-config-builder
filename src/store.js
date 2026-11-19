@@ -1,7 +1,7 @@
 import { reactive, computed, watch } from 'vue'
 import {
   sampleState, emptyState, stateFromJson, buildConfig,
-  createItem, createGroup, createSchedule, createParam, clone, uid
+  createItem, createGroup, createSchedule, createParam, createCallback, clone, uid
 } from './model.js'
 import { validateAll } from './validate.js'
 import { mergeStates } from './merge.js'
@@ -10,22 +10,32 @@ const STORAGE_KEY = 'ql-config-builder-v1'
 /** 撤销快照单独一个 key，绝不碰自动保存用的 STORAGE_KEY */
 const UNDO_KEY = 'ql-merge-undo-v1'
 
+/** 老版本 localStorage / 撤销快照里没有 callback 这两个键，补齐再交给 Vue，
+ *  否则回调页的 ObjectEditor 拿到 undefined 会渲染不出来。 */
+function normalizeState(st) {
+  if (!st.callback || typeof st.callback !== 'object' || Array.isArray(st.callback)) st.callback = createCallback()
+  if (!st.callback._include) st.callback._include = {}
+  if (!st.callback._extra) st.callback._extra = {}
+  if (typeof st.includeCallback !== 'boolean') st.includeCallback = false
+  return st
+}
+
 function initialState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed && Array.isArray(parsed.items)) return parsed
+      if (parsed && Array.isArray(parsed.items)) return normalizeState(parsed)
     }
   } catch (e) { /* 浏览器禁用存储时直接走示例 */ }
-  return sampleState()
+  return normalizeState(sampleState())
 }
 
 export const state = reactive(initialState())
 
 /** 当前编辑对象：{ kind: 'meta'|'item'|'group'|'schedule', key } */
 export const ui = reactive({
-  tab: 'items',                 // items | groups | schedules | meta | reference
+  tab: 'items',                 // items | groups | schedules | meta | callback | reference
   selectedKey: '',
   itemTypeFilter: 'all',        // 'all' | ITEM_TYPES[].value，仅影响左侧列表显示，不影响生成的 JSON
   previewMode: 'json',          // json | issues | submit（云端提交，附加功能）
@@ -216,6 +226,8 @@ export function importJson(text) {
   const next = stateFromJson(data)
   clearUndo()                     // 整体替换后旧撤销点已无意义
   state.meta = next.meta
+  state.callback = next.callback
+  state.includeCallback = next.includeCallback
   state.items = next.items
   state.groups = next.groups
   state.schedules = next.schedules
@@ -230,6 +242,8 @@ export function loadSample() {
   const next = sampleState()
   clearUndo()
   state.meta = next.meta
+  state.callback = next.callback
+  state.includeCallback = next.includeCallback
   state.items = next.items
   state.groups = next.groups
   state.schedules = next.schedules
@@ -244,6 +258,8 @@ export function clearAll() {
   const next = emptyState()
   clearUndo()
   state.meta = next.meta
+  state.callback = next.callback
+  state.includeCallback = next.includeCallback
   state.items = next.items
   state.groups = next.groups
   state.schedules = next.schedules
@@ -269,6 +285,8 @@ export function mergeJson(text, policy = 'keep') {
   writeUndo({ savedAt: Date.now(), state: snapshot, stats: null, fingerprint: '' })
 
   state.meta = next.meta
+  state.callback = next.callback
+  state.includeCallback = next.includeCallback
   state.items = next.items
   state.groups = next.groups
   state.schedules = next.schedules
@@ -294,8 +312,10 @@ export function undoMerge() {
     if (!window.confirm('合并之后你还改过配置，撤销会把这些改动一并回退。确定继续吗？')) return false
   }
 
-  const s = snap.state
+  const s = normalizeState(snap.state)
   state.meta = s.meta
+  state.callback = s.callback
+  state.includeCallback = s.includeCallback
   state.items = s.items
   state.groups = s.groups
   state.schedules = s.schedules

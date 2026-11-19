@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import ItemEditor from './components/ItemEditor.vue'
 import ObjectEditor from './components/ObjectEditor.vue'
 import MetaEditor from './components/MetaEditor.vue'
+import CallbackEditor from './components/CallbackEditor.vue'
 import ReferencePanel from './components/ReferencePanel.vue'
 import JsonPreview from './components/JsonPreview.vue'
 import { ITEM_TYPES, GROUP_FIELDS, SCHEDULE_FIELDS } from './schema.js'
@@ -28,6 +29,7 @@ const tabs = [
   { key: 'items', ico: '▤', label: '条目 items', count: () => state.items.length },
   { key: 'groups', ico: '◧', label: '分组 groups', count: () => state.groups.length },
   { key: 'schedules', ico: '◷', label: '定时任务', count: () => state.schedules.length },
+  { key: 'callback', ico: '↺', label: '回调 callback', count: () => state.includeCallback ? '✓' : '' },
   { key: 'reference', ico: '?', label: '字段速查', count: () => '' }
 ]
 
@@ -302,6 +304,7 @@ function schedMode(s) {
               4. 复制后覆盖软件目录的 config.json，点「重载配置」。<br />
               5. 可选：右侧「提交到后端」把配置 POST 给后端，配合软件「拉取在线配置」使用。
               <div class="mt6">条目多时可用左侧竖排 TAB 按 type 筛选；它只影响列表显示，导出的 JSON 仍是全部条目。</div>
+              <div class="mt6">顶层 <span class="mono">callback</span> 回调块在「回调 callback」页或「配置总览」里开关；不写就是上游默认值。</div>
             </div>
           </template>
         </div>
@@ -370,6 +373,7 @@ function schedMode(s) {
         </template>
 
         <MetaEditor v-else-if="ui.tab === 'meta'" />
+        <CallbackEditor v-else-if="ui.tab === 'callback'" />
         <ReferencePanel v-else-if="ui.tab === 'reference'" />
       </section>
 

@@ -1,6 +1,7 @@
 <script setup>
 import {
   ITEM_FIELDS, PARAM_FIELDS, GROUP_FIELDS, SCHEDULE_FIELDS, TOP_FIELDS,
+  CALLBACK_FIELDS, CALLBACK_RULES,
   ITEM_TYPES, TARGET_RULES, TEMPLATE_RULES, TEMPLATE_FIELDS,
   DYNAMIC_VALUES, DYNAMIC_RULES, README_NOTES
 } from '../schema.js'
@@ -97,8 +98,31 @@ const reqText = f => f.required ? '必填' : '可选'
           <tr><td>items</td><td>条目数组，配置的数据主体。老版本也支持顶层直接写数组。</td><td><span class="tag req">必填</span></td><td>对象数组</td></tr>
           <tr><td>groups</td><td>分组定义，只影响过滤（@分组、胶囊），不影响启动。不写也能跑。</td><td><span class="tag opt">可选</span></td><td>对象数组</td></tr>
           <tr><td>schedules</td><td>后台定时任务，效果等同 ql run，不写就一条任务都没有。</td><td><span class="tag opt">可选</span></td><td>对象数组</td></tr>
+          <tr><td>callback</td><td>顶层可选回调块：响应根对象带 _ql_callback 时按 actions 执行本地动作。不写就是全默认值，老配置不用改。</td><td><span class="tag opt">可选</span></td><td>对象（5 个可选子字段，见下表）</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 顶层 callback -->
+    <div class="ref-block">
+      <h3 class="ref-title">顶层 callback 回调块（{{ CALLBACK_FIELDS.length }} 个字段）</h3>
+      <p class="ref-sub">
+        上游 d48be68 新增。整个块可选，不写就是默认值
+        <span class="mono">enabled=true · max=5 · maxDepth=5 · allow=[] · onQuiet=notify</span>；
+        左侧「回调 callback」页可开关并逐字段编辑，生成器把它排在导出 JSON 的末尾。
+      </p>
+      <table class="ref-table">
+        <thead><tr><th>字段</th><th>意义</th><th>必填</th><th>格式 / 校验口径</th></tr></thead>
+        <tbody>
+          <tr v-for="f in CALLBACK_FIELDS" :key="f.key">
+            <td>{{ f.key }}</td>
+            <td>{{ f.desc }}<div class="muted fs11 mt6">README：{{ f.doc }}</div></td>
+            <td><span class="tag" :class="f.required ? 'req' : 'opt'">{{ reqText(f) }}</span></td>
+            <td>{{ f.format }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <ul class="ref-list mt10"><li v-for="(r, i) in CALLBACK_RULES" :key="i">{{ r }}</li></ul>
     </div>
 
     <!-- 类型 -->

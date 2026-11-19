@@ -5,6 +5,10 @@
 **离线单文件**即可使用；另外附带两个**可选的附加功能**：把配置「提交到后端」（配合启动器已有的「拉取在线配置」做多机同步），
 以及「导入 config.json」的**合并模式**（按 ID 判重增量并入，可预览冲突、可撤销）。
 
+字段字典与上游 `wv2-launcher` 的 README / `ui/app.js` 保持同步，已覆盖到 `d48be68` 新增的
+**顶层 `callback` 回调块**（5 个可选字段）；顺带对齐了 jsonfile 的 YAML/TOML、download 的 headers 动态值、
+`savePath` 缺省目录、`at` / `every` 宽松写法等几处文档口径，见 §3.4。
+
 > 在线提交是附加功能：网络不通、后端没起、CORS 没配、`file://` 直接打开……都只会在提交面板里给出错误提示，
 > **不会影响本地生成 / 校验 / 复制 / 下载 / 导入** 等任何功能。
 
@@ -49,11 +53,12 @@ quicklaunch-config-builder/
 │   │   ├── config.js          编译期常量读取 + 页面覆盖值的读写
 │   │   ├── auth.js            鉴权 provider / QL-HMAC-SHA256-v1 签名
 │   │   └── submit.js          校验门禁、端点体检、fetch 提交、错误分类
-│   └── components/            各编辑器；BackendPanel.vue = 云端提交，MultipartEditor.vue = 文件上传
+│   └── components/            各编辑器；BackendPanel.vue = 云端提交，MultipartEditor.vue = 文件上传，
+│                              CallbackEditor.vue = 顶层 callback 回调块
 ├── scripts/
-│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并 23 项 + multipart 23 项用例
+│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并 23 项 + multipart 23 项 + callback 36 项用例
 │   ├── verify-backend.mjs     提交 / 鉴权链路的 Node 层回归
-│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩，121 项）
+│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩，147 项）
 │   ├── e2e-check.mjs          真实跨域端到端（两个 HTTP 服务 + CDP 驱动浏览器）
 │   └── mock-backend.mjs       ★ 零依赖参考后端，已配好 CORS / 可选 HMAC 校验
 └── dist/index.html            构建产物（作为离线发布物一并入库）
@@ -65,11 +70,13 @@ quicklaunch-config-builder/
 
 字段字典 `src/schema.js` 逐项对照 `wv2-launcher/README.md` 的
 **「四、配置说明」**（含 webhook / download / jsonfile / 模板变量 / 发送前展开的动态值）与
-**「七、定时调度」**，并核对 `wv2-launcher/ui/app.js` 的归一化实现，共结构化 **50 个字段**：
+**「七、定时调度」**，以及新增的**「回调：响应里带 `_ql_callback` 就执行本地动作」**一节；
+实现细节逐条核对 `wv2-launcher/ui/app.js` 的 `cbCfg()` / `cbPlan()` 归一化逻辑，共结构化 **55 个字段**：
 
 | 区域 | 字段数 | 说明 |
 |---|---|---|
-| 顶层 | 5 | `name` / `version` / `items` / `groups` / `schedules` |
+| 顶层 | 6 | `name` / `version` / `items` / `groups` / `schedules` / `callback` |
+| 顶层 `callback` | 5 | `enabled` / `max` / `maxDepth` / `allow` / `onQuiet`（整块可选，见 §3.4） |
 | 条目 `items[]` | 27 | 8 种 `type`（app / cmd / url / folder / ahk / webhook / download / jsonfile）动态决定哪些字段可见 |
 | 参数 `params[]` | 7 | 交互参数子表，含 `{{变量}}` 支持 |
 | 分组 `groups[]` | 2 | |
@@ -86,6 +93,9 @@ quicklaunch-config-builder/
 `accent` 颜色格式；`group` 引用检查；模板变量未声明直接报错、没声明 params 只警告。
 `multipart` 三种写法都认，会拦截「没有任何可用文件」「`files[]` 某项缺 `path`」「值不是对象」，
 并在同时写了 `body` 时提醒 body 会被忽略；`{{参数}}` 模板的生效字段已包含 `multipart`。
+`callback` 块按上游运行时口径校验：`enabled` 只认布尔、`allow` 必须是字符串数组且引用已知条目 id、
+`max` / `maxDepth` 超出 1~20 或非整数只提醒（程序会夹紧/取整）、`onQuiet` 非 `notify` / `popup` 只提醒、
+`enabled:false` 时写了其它字段会提醒；`callback` 写成非对象（数组 / 字符串 / null）则报错并原样保留。
 
 ### 可选字段的勾选框
 
@@ -198,6 +208,41 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 > 上游 `wv2-launcher/README.md` 的动态值小节里还留了一句「只展开请求头：target / body 里的 `{{#ts}}` 不动」，
 > 那是 11-02 的旧文，本次代码改了行为但没删干净（已与项目作者确认）。**以 `launcher.ahk` 的
 > `body := HdrExpand(body)` 和本节为准**；本工具、字段速查、校验说明统一按 headers + body 表述。
+
+### 3.4 顶层 `callback` 回调块（对齐上游 `d48be68`）
+
+上游在 `config.json` **顶层新增一个可选对象块 `callback`**，用于 webhook 响应带 `_ql_callback` 时执行本地动作。
+左侧新增 **「↺ 回调 callback」** 页，也在「配置总览 → 可选区块」里放了同一个开关。
+
+| 字段 | 缺省 | 说明 / 校验口径 |
+|---|---|---|
+| `enabled` | `true` | 总开关。只有布尔 `false` 才关；写 `"false"` / `0` / `null` 一律按启用。 |
+| `max` | `5` | 一次响应最多执行几个动作。整数 1~20；写 0 会被夹到 1（**不是禁用**），非数字退回 5。 |
+| `maxDepth` | `5` | 一条回调链最多几跳，防环 + 祖先链判定。与 `max` 互相独立。 |
+| `allow` | `[]` | 非空时只有列出的条目 id 能被 `run` 拉起（按小写比对）；空数组 = 不限制。 |
+| `onQuiet` | `notify` | 只有写 `popup`（忽略大小写）才让定时任务触发的链照常弹模态框，其余一律托盘提示。 |
+
+**行为要点**：响应 JSON 的**根对象第一层**带 `_ql_callback` 才触发，深层的同名键不触发；
+`actions` 支持 `msg` / `run` 两类（也认 `popup` / `exec` 别名）；先回执再执行，不会把 `ql run x --wait` 堵住；
+错误响应（4xx/5xx）同样能回调；日志在 `launcher.log`，每条带 `[cb]` 前缀。
+完整的 11 条运行时约定在「回调 callback」页与「字段速查 → 顶层 callback 回调块」里。
+
+**生成器侧的三个保证**：
+
+1. **不写就是全默认值**：关掉开关时导出的 JSON 完全不含 `callback` 键；没有任何字段会被擅自注入。
+   上游自带的 `config.json` 本身也没写这个块，所以老配置一个字都不用改。
+2. **顺序不破坏旧文件**：`callback` 是后加的顶层块，刻意排在导出 JSON 的**末尾**；
+   不写时顶层键顺序仍是 `name → version → items → groups → schedules`，
+   `deepStrictEqual` 往返无损回归已覆盖。
+3. **不丢自定义键**：`callback` 内字典外的子键走 `_extra` 原样保留；
+   写成数组 / 字符串 / `null` 这类坏值也不当场改写，而是留在 JSON 预览里由校验器报错。
+   「合并导入」按既有约定只动 `items` / `groups` / `schedules` 三个数组，
+   **现有 `callback` 与顶层字段一律保留**，导入文件里的 `callback` 不会覆盖它；
+   「全量覆盖」仍按导入文件整体还原（含移除 `callback`）。
+
+> 顺带对齐的几处上游文档口径（不改结构，只改字段说明）：`jsonfile` 已支持 YAML / TOML
+> （按扩展名选解析器，`.yaml` / `.toml` 上限 2 MB）；`download` 的 `headers` 也走动态值展开；
+> `savePath` 缺省改为 `%USERPROFILE%\Downloads`；`at` 允许时分只写一位、`every` 允许纯数字与中文单位。
 
 ---
 
@@ -518,9 +563,9 @@ npm run check
 
 | 层 | 脚本 | 覆盖 |
 |---|---|---|
-| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损）；**multipart / 动态值 23 项**（三种写法 + `file` 别名逐字段往返、模板扫描、校验拦截、动态值不误判） |
+| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损）；**multipart / 动态值 23 项**（三种写法 + `file` 别名逐字段往返、模板扫描、校验拦截、动态值不误判）；**callback / 文案口径 36 项**（缺省不写与键顺序、逐字段往返、坏值保留、5 类字段校验、合并保留、上游文案对齐） |
 | 2 | `verify-backend.mjs` | 编译期注入、URL 覆盖、提交门禁、端点体检、请求体/头、超时、CORS 错误分类、HMAC 签名与独立实现比对、自定义 provider |
-| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**、**multipart 三种写法切换与 JSON 联动、导入自动识别写法、动态值口径**），共 121 项 |
+| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**、**multipart 三种写法切换与 JSON 联动、导入自动识别写法、动态值口径**、**callback 开关 / 5 字段编辑 / 校验提醒 / 导入结构化 / 合并保留 / 速查表**），共 147 项 |
 | 4 | `e2e-check.mjs` | 起两个不同端口的 HTTP 服务，CDP 驱动浏览器做**真实跨域** POST → OPTIONS 预检 → GET 回读，再对启用 HMAC 的实例验证签名/重放/篡改 |
 
 单项运行：`npm run verify:model` / `verify:backend` / `verify:ui` / `verify:e2e`。
@@ -553,6 +598,12 @@ npm run check
 | 同时写了 `body` 和 `multipart` | 有 `multipart` 就整个走它，`body` 会被忽略；校验器只提醒不报错，删掉其中一个即可 |
 | 导入的 multipart 写法被改了 | 不会：编辑器按值反推写法，不主动编辑就不重写 JSON，字典外自定义键也原样保留 |
 | `{{#file:…}}` 被报成「没有在 params 里声明」 | 先确认写的是带 `#` 的动态值（前端不认 `#`，不会误判）；如果确实写了 `{{参数}}`，就得在 `params` 里声明它 |
+| 导出的 JSON 里找不到 `callback` | 这是正常缺省：左侧「回调 callback」页的开关默认关闭，上游也全走默认值。打卡后再填字段即可 |
+| 打开 callback 开关后 JSON 只有 `"callback": {}` | 设计如此，效果与全默认一致；逐个勾左边字段的勾选框才会写入具体值 |
+| `max` 写 0 想禁用回调 | 程序会把它夹成 1；要彻底关掉请写 `enabled: false`（只有布尔 `false` 生效） |
+| 校验说 `allow` 里的 id 不存在 | `run` 动作拉起条目时会被静默跳过、只记日志；改成 `items[].id` 里的值（大小写不敏感）即可 |
+| 导入的配置带 `callback` 但合并后没生效 | 合并模式按约定只动三个数组，顶层 `callback` 与 `name` / `version` 一律保留现有值；改用「清空原有，全量覆盖」才会采用导入文件的值 |
+| 旧版浏览器缓存里没有 callback 编辑区 | 已做兼容：载入 localStorage 时自动补齐 `callback` / `includeCallback` 两个键，不会白屏 |
 
 ---
 
@@ -571,6 +622,8 @@ npm run check
 | `multipart` 三种写法 / 文件子表 | `src/components/MultipartEditor.vue`、`src/styles.css` 的 `.mpart-*`、`src/schema.js` 的 `multipart` 字段定义、`src/model.js` 的 `ensureUsable` |
 | 动态值清单、展开面口径、模板生效字段 | `src/schema.js` 的 `DYNAMIC_VALUES` / `DYNAMIC_RULES` / `TEMPLATE_FIELDS`、`src/components/ReferencePanel.vue` / `KvEditor.vue` / `ParamsEditor.vue` |
 | `multipart` 校验规则 | `src/validate.js` 的 `normalizeMultipartForCheck` 与 `case 'multipart'` |
+| `callback` 字段说明 / 行为约定 / 校验 | `src/schema.js` 的 `CALLBACK_FIELDS` / `CALLBACK_RULES` / `README_NOTES`、`src/components/CallbackEditor.vue`、`src/validate.js` 的 `顶层 callback` 段 |
+| `callback` 的导入 / 导出 / 开关 / 旧数据兼容 | `src/model.js` 的 `createCallback` / `stateFromJson` / `buildConfig`、`src/store.js` 的 `normalizeState` 与各全局操作、`src/merge.js` 的 `mergeStates` |
 | 单文件产物 | `vite.config.js` 的 `singleFileHtml()` 插件 |
 
 ---
@@ -579,6 +632,10 @@ npm run check
 
 - `launcher.ini`（AHK 侧设置）不属于 `config.json`，本工具不处理。
 - 顶层 `name` / `version` 在启动器 README 里没有单列说明，按「顶层元数据、启动器不读取」保留为可编辑字段。
+- 顶层 `callback` 是上游 `d48be68` 新增的**可选**块；生成器不写它时行为与上游默认值完全一致，
+  也不把它塞进 `meta._extra` 重复持久化。上游 `config.json` 本身不含这个块，因此本项目内置示例同样不含。
+- `_ql_callback` 是**接口响应**里的键，不是 `config.json` 的配置项；本工具只在「回调 callback」页给出响应示例，
+  不会把它写进导出结果。
 - `params[].required` 是 `wv2-launcher/ui/app.js` 用到但 README 未记载的兼容字段，已做进子表并在界面标注来源。
 - `dist/index.html` 作为「离线可直接双击使用」的发布物一并入库；`node_modules/` 与临时文件已忽略。
 - 推送远端由使用者手动执行，本仓库的自动化流程不会自动 `git push`。
