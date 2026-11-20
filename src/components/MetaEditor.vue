@@ -49,7 +49,7 @@ const typeCounts = computed(() => {
           <div class="switch" :class="{ on: state.includeCallback }" @click="state.includeCallback = !state.includeCallback">
             <div class="switch-track"></div><span class="switch-label">输出 callback（顶层可选块）</span>
           </div>
-          <span class="muted fs11">不写就是上游默认值；五个字段在左侧「回调 callback」页编辑。</span>
+          <span class="muted fs11">不写就是上游默认值；六个字段在左侧「回调 callback」页编辑。</span>
         </div>
       </div>
     </div>

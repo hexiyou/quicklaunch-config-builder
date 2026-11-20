@@ -5,9 +5,11 @@
 **离线单文件**即可使用；另外附带两个**可选的附加功能**：把配置「提交到后端」（配合启动器已有的「拉取在线配置」做多机同步），
 以及「导入 config.json」的**合并模式**（按 ID 判重增量并入，可预览冲突、可撤销）。
 
-字段字典与上游 `wv2-launcher` 的 README / `ui/app.js` 保持同步，已覆盖到 `d48be68` 新增的
-**顶层 `callback` 回调块**（5 个可选字段）；顺带对齐了 jsonfile 的 YAML/TOML、download 的 headers 动态值、
-`savePath` 缺省目录、`at` / `every` 宽松写法等几处文档口径，见 §3.4。
+字段字典与上游 `wv2-launcher` 的 README / `ui/app.js` 保持同步，已覆盖到 **`d76e27b`**：
+`d48be68` 的顶层 `callback` 回调块、`03086ae` 的 `callback.popup`（共 6 个可选字段），
+以及 `713398e` / `d76e27b` 的内置变量 `{{@config}}` / `{{@fp}}` 与动态值 `{{#machine}}`（见 §3.4 / §3.5）。
+顺带对齐了 jsonfile 的 YAML/TOML、download 的 headers 动态值、`savePath` 缺省目录、
+`at` / `every` 宽松写法等几处文档口径。
 
 > 在线提交是附加功能：网络不通、后端没起、CORS 没配、`file://` 直接打开……都只会在提交面板里给出错误提示，
 > **不会影响本地生成 / 校验 / 复制 / 下载 / 导入** 等任何功能。
@@ -56,9 +58,9 @@ quicklaunch-config-builder/
 │   └── components/            各编辑器；BackendPanel.vue = 云端提交，MultipartEditor.vue = 文件上传，
 │                              CallbackEditor.vue = 顶层 callback 回调块
 ├── scripts/
-│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并 23 项 + multipart 23 项 + callback 36 项用例
+│   ├── verify.mjs             模型层「导入→导出」无损回归 + 合并 23 + multipart 23 + callback 36 + 新特性 36 项用例
 │   ├── verify-backend.mjs     提交 / 鉴权链路的 Node 层回归
-│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩，147 项）
+│   ├── ui-check.mjs           无头浏览器交互回归（file:// + fetch 打桩，162 项）
 │   ├── e2e-check.mjs          真实跨域端到端（两个 HTTP 服务 + CDP 驱动浏览器）
 │   └── mock-backend.mjs       ★ 零依赖参考后端，已配好 CORS / 可选 HMAC 校验
 └── dist/index.html            构建产物（作为离线发布物一并入库）
@@ -71,30 +73,36 @@ quicklaunch-config-builder/
 字段字典 `src/schema.js` 逐项对照 `wv2-launcher/README.md` 的
 **「四、配置说明」**（含 webhook / download / jsonfile / 模板变量 / 发送前展开的动态值）与
 **「七、定时调度」**，以及新增的**「回调：响应里带 `_ql_callback` 就执行本地动作」**一节；
-实现细节逐条核对 `wv2-launcher/ui/app.js` 的 `cbCfg()` / `cbPlan()` 归一化逻辑，共结构化 **55 个字段**：
+实现细节逐条核对 `wv2-launcher/ui/app.js` 的 `cbCfg()` / `cbPlan()` / `TPL_RE` / `builtinIssues()`
+归一化与模板逻辑，共结构化 **56 个字段**：
 
 | 区域 | 字段数 | 说明 |
 |---|---|---|
-| 顶层 | 6 | `name` / `version` / `items` / `groups` / `schedules` / `callback` |
-| 顶层 `callback` | 5 | `enabled` / `max` / `maxDepth` / `allow` / `onQuiet`（整块可选，见 §3.4） |
+| 顶层 | 5 | `name` / `version` / `items` / `groups` / `schedules`（另有第 6 个顶层键 `callback`，其 6 个子字段在下行单独统计） |
+| 顶层 `callback` | 6 | `enabled` / `max` / `maxDepth` / `allow` / `onQuiet` / `popup`（整块可选，见 §3.4） |
 | 条目 `items[]` | 27 | 8 种 `type`（app / cmd / url / folder / ahk / webhook / download / jsonfile）动态决定哪些字段可见 |
 | 参数 `params[]` | 7 | 交互参数子表，含 `{{变量}}` 支持 |
 | 分组 `groups[]` | 2 | |
 | 定时任务 `schedules[]` | 9 | `at` / `every` / `days` / `enabled` 等 |
 
 界面里每个字段都带 README 对应的说明、格式、适用类型；「字段速查」页把全部字段列成表格一次看全。
-**发送前展开的动态值**收录 18 种（含 `{{#file:…}}` / `{{#file-raw:…}}` / `{{#filebase64:…}}` /
-`{{#filehash:算法:…}}` 四个文件系列），口径为 **headers 与 body 都展开**，见 §3.3。
+**发送前展开的动态值**收录 20 种（含四个 `{{#file…}}` 文件系列与 `d76e27b` 新增的
+`{{#machine}}` / `{{#machine:short}}`），口径为 **headers 与 body 都展开**，见 §3.3。
+另有 **8 种内置变量** `{{@config}}` / `{{@fp}}` 一族，它们不带 `#`、不需要声明 `params`，见 §3.5。
 
 **校验要点**：`id` 必填唯一且限 `[A-Za-z0-9_.-]`；`target` 按 type 校验（webhook / download 必须 http(s)）；
 `timeout > 0 且 ≤120`；`method` 限 6 种、`onExists` 限 skip/overwrite；
 `at` 为 `HH:MM(:SS)` 及范围、`every` 30 秒～30 天、`at`/`every` 二选一、`days` 只跟 `at`；
 布尔字段严格只认真/假（写字符串或数字会报错，因为程序会按缺省处理）；
-`accent` 颜色格式；`group` 引用检查；模板变量未声明直接报错、没声明 params 只警告。
+`accent` 颜色格式；`group` 引用检查；模板变量未声明直接报错、没声明 params 只警告，
+模板正则对齐上游（认 `@` 与名字两侧的空格，`@` 开头的**不算参数**）。
 `multipart` 三种写法都认，会拦截「没有任何可用文件」「`files[]` 某项缺 `path`」「值不是对象」，
 并在同时写了 `body` 时提醒 body 会被忽略；`{{参数}}` 模板的生效字段已包含 `multipart`。
+内置变量拼错（`{{@confg}}` / `{{@config.txt}}` / `{{@config:json}}`）按上游 `builtinIssues()` 口径**报错拦下**；
+请求头里用 `{{@config}}` 会提醒改用 `.b64`，`multipart` 里用 `@config` 会提醒 boundary 风险。
 `callback` 块按上游运行时口径校验：`enabled` 只认布尔、`allow` 必须是字符串数组且引用已知条目 id、
 `max` / `maxDepth` 超出 1~20 或非整数只提醒（程序会夹紧/取整）、`onQuiet` 非 `notify` / `popup` 只提醒、
+`popup` 不在 `native` / `custom` / `gui` / `window` 里只提醒（会静默回落 native）、
 `enabled:false` 时写了其它字段会提醒；`callback` 写成非对象（数组 / 字符串 / null）则报错并原样保留。
 
 ### 可选字段的勾选框
@@ -209,10 +217,10 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 > 那是 11-02 的旧文，本次代码改了行为但没删干净（已与项目作者确认）。**以 `launcher.ahk` 的
 > `body := HdrExpand(body)` 和本节为准**；本工具、字段速查、校验说明统一按 headers + body 表述。
 
-### 3.4 顶层 `callback` 回调块（对齐上游 `d48be68`）
+### 3.4 顶层 `callback` 回调块（对齐上游 `d48be68` / `32ede80` / `03086ae`）
 
 上游在 `config.json` **顶层新增一个可选对象块 `callback`**，用于 webhook 响应带 `_ql_callback` 时执行本地动作。
-左侧新增 **「↺ 回调 callback」** 页，也在「配置总览 → 可选区块」里放了同一个开关。
+`03086ae` 又补了第 6 个字段 `popup`。左侧 **「↺ 回调 callback」** 页与「配置总览 → 可选区块」都有开关。
 
 | 字段 | 缺省 | 说明 / 校验口径 |
 |---|---|---|
@@ -221,11 +229,20 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 | `maxDepth` | `5` | 一条回调链最多几跳，防环 + 祖先链判定。与 `max` 互相独立。 |
 | `allow` | `[]` | 非空时只有列出的条目 id 能被 `run` 拉起（按小写比对）；空数组 = 不限制。 |
 | `onQuiet` | `notify` | 只有写 `popup`（忽略大小写）才让定时任务触发的链照常弹模态框，其余一律托盘提示。 |
+| `popup` | `native` | 提示框机制：`native` = 系统消息框 + `Owner<主窗口>`（缺省，模态、系统提示音、Ctrl+C 复制正文、按主窗口居中）；`custom` = 自绘置顶窗口（非模态、成功绿失败红）。也认 `gui` / `window` 别名，大小写不敏感；**其它一切值（含 `msgbox`、数字、拼错）静默回落 native**。主窗口在屏幕外时 native 自动改走 custom。 |
+
+> `popup` 是配置键；动作里的 `"type": "popup"` 只是 `msg` 的别名，两处不相干。
+> 上游 `cbCfg()` 的判定是 `['custom','gui','window'].includes(小写值) ? 'custom' : 'native'`，
+> 生成器按这个口径给未知值/非字符串值只提醒、不拦。
 
 **行为要点**：响应 JSON 的**根对象第一层**带 `_ql_callback` 才触发，深层的同名键不触发；
-`actions` 支持 `msg` / `run` 两类（也认 `popup` / `exec` 别名）；先回执再执行，不会把 `ql run x --wait` 堵住；
+`actions` 支持 `msg` / `run` 两类（也认 `popup` / `exec` 别名）；
+`run` 还能带 `args`（文本，也认数组）/`params`（按参数名给值，值里有空格也不会被拆坏），
+动作值里的 `{{body.a.b}}` / `{{status}}` / `{{from.id}}` 等**响应模板**会在执行前填好
+（和条目自己的 `{{参数}}` 是两层：一层来自远端响应，一层来自本次给的参数）。
+提示框两套由 `callback.popup` 选，先回执再执行，不会把 `ql run x --wait` 堵住；
 错误响应（4xx/5xx）同样能回调；日志在 `launcher.log`，每条带 `[cb]` 前缀。
-完整的 11 条运行时约定在「回调 callback」页与「字段速查 → 顶层 callback 回调块」里。
+完整的 14 条运行时约定在「回调 callback」页与「字段速查 → 顶层 callback 回调块」里。
 
 **生成器侧的三个保证**：
 
@@ -243,6 +260,47 @@ folder / ahk / webhook / download / jsonfile），每个按钮下方是该类条
 > 顺带对齐的几处上游文档口径（不改结构，只改字段说明）：`jsonfile` 已支持 YAML / TOML
 > （按扩展名选解析器，`.yaml` / `.toml` 上限 2 MB）；`download` 的 `headers` 也走动态值展开；
 > `savePath` 缺省改为 `%USERPROFILE%\Downloads`；`at` 允许时分只写一位、`every` 允许纯数字与中文单位。
+
+### 3.5 内置变量与设备指纹（对齐上游 `713398e` / `d76e27b`）
+
+这两次提交**没有改 `config.json` 结构**，但新增了一整类模板写法，生成器的字段字典、模板扫描、
+校验和速查都同步了。名字前面的 `@` 是「内置变量」的门牌：它们是**环境**不是**参数**，
+不需要声明 `params`，也不算「引用了没声明的变量」。
+
+| 写法 | 出来什么 | 用在哪 |
+|---|---|---|
+| `{{@config}}` | `config.json` 全文的 JSON 字符串内容（引号/反斜杠/换行已转义） | 字符串 body；不带修饰时按 body 形态自动选 |
+| `{{@config.json}}` | 上一行的别名 | 写全一点更好读 |
+| `{{@config.raw}}` | 原文，多行 | 对象 body、`text/plain`、按字节比对 |
+| `{{@config.b64}}` | UTF-8 → Base64，单行纯 ASCII | **请求头只能用这个** |
+| `{{@fp}}` | 浏览器指纹 `FP1-…`（页面 JS 算，Edge 升级不变） | 要拿到别的网页应用里校验 |
+| `{{@fp.short}}` | 前两段 | 请求头 / URL |
+| `{{@fp.bound}}` | `FPB1-…`，拌进 AHK 生成的本机盐 | 只在本机可复算的强绑定版 |
+| `{{@fp.parts}}` | 明细串 `v=1\|os=…\|cores=…` | 排查 / 服务端差分 |
+
+另有两条 AHK 侧 `#` 层动态值并进了 §3.3 的动态值表：`{{#machine}}`（WMI 主板 + 系统盘算的
+`MC1-…`，32 hex，缓存在 `machine.ini`）与 `{{#machine:short}}`（前两段）。它能进请求头、
+也能写成 `{{#hmac:demo:{machine}}}` 嵌进签名；`{{@fp}}` 则是页面 JS 算的，**两套算法不同**。
+
+**生成器侧做了什么**：
+
+1. **字段字典**：新增 `BUILTIN_VALUES`（8 条）/ `BUILTIN_KEYS` / `BUILTIN_RULES`（11 条），
+   `DYNAMIC_VALUES` 从 18 补到 20；「字段速查」新增内置变量专章与规则清单。
+2. **插入下拉**：任意模板生效字段（`target` / `args` / `query` / `headers` / `body` /
+   `savePath` / `fileName` / `multipart`）都能选内置变量；`headers` / `body` 另外还能选 `#` 动态值。
+   非模板字段（如 `id` / `name`）不显示这些选项。
+3. **模板扫描对齐上游 `TPL_RE`**：认名字两侧的空格（`{{ @config }}` 等价于 `{{@config}}`）；
+   `@` 开头的不进参数变量集合，`#` 开头的前端本来就不认，转义口 `{{{{` / `}}}}` 照旧剔除。
+4. **校验**：用比 `TPL_RE` 更宽的正则（对齐 `builtinIssues()`）抓「形似但不合法」的
+   `{{@confg}}` / `{{@config.txt}}` / `{{@config:json}}`，**报错拦下**；
+   `{{{{@config}}}}` 是逃生口不算引用。另按 README 口径提醒：请求头里的 `@config` 改用 `.b64`、
+   `multipart` 里别用 `@config`（不走 HdrExpand，哨兵会留下、换行会破坏 boundary）。
+
+> 几条容易踩的：不带修饰的 `{{@config}}` 在**对象 body** 里给原文（随后 `JSON.stringify`
+> 会转义一次，抢先转义就是双重转义），在**字符串 body** 里给转义形；要原文请显式写 `.raw`。
+> 内置变量不会被二次展开，注入时把 `{{#` 换成哨兵躲开 AHK 的 `HdrExpand`，收尾字节级复原。
+> **全文外发**：配置里的接口地址、token、路径都会发过去；`{{@fp}}` 不是秘密（算法在 JS 里，
+> 只有 `bound` 的盐藏得住）；两套指纹都含硬件特征，目标地址要可信。
 
 ---
 
@@ -563,9 +621,9 @@ npm run check
 
 | 层 | 脚本 | 覆盖 |
 |---|---|---|
-| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损）；**multipart / 动态值 23 项**（三种写法 + `file` 别名逐字段往返、模板扫描、校验拦截、动态值不误判）；**callback / 文案口径 36 项**（缺省不写与键顺序、逐字段往返、坏值保留、5 类字段校验、合并保留、上游文案对齐） |
+| 1 | `verify.mjs` | 把 `wv2-launcher/config.json` 导入再导出，`deepStrictEqual` 逐字段无损；真实配置跑校验 0 错 0 提醒；**合并引擎 23 项**（两种策略、无 ID、导入文件自身重复、`_key`/`_include`/`_extra`/`params`、输出开关、纯函数只读性、往返无损）；**multipart / 动态值 23 项**（三种写法 + `file` 别名逐字段往返、模板扫描、校验拦截、动态值不误判）；**callback / 文案口径 36 项**（缺省不写与键顺序、逐字段往返、坏值保留、6 类字段校验、合并保留、上游文案对齐）；**popup / 内置变量 / 设备指纹 36 项**（popup 四种合法值往返与别名回落、8 个内置键、模板正则与宽正则、拼错拦截、headers `.b64` 与 multipart 提醒、machine 清单、文案口径） |
 | 2 | `verify-backend.mjs` | 编译期注入、URL 覆盖、提交门禁、端点体检、请求体/头、超时、CORS 错误分类、HMAC 签名与独立实现比对、自定义 provider |
-| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**、**multipart 三种写法切换与 JSON 联动、导入自动识别写法、动态值口径**、**callback 开关 / 5 字段编辑 / 校验提醒 / 导入结构化 / 合并保留 / 速查表**），共 147 项 |
+| 3 | `ui-check.mjs` | 无头 Chrome 交互（页签、类型切换、字段开关、速查表、**纵向类型 TAB 筛选**、提交面板、不发请求/发请求、状态提示、**导入三种模式、冲突预览只读、撤销与二次确认、解析失败不改数据**、**multipart 三种写法切换与 JSON 联动、导入自动识别写法、动态值口径**、**callback 开关 / 6 字段编辑（含 popup 别名）/ 校验提醒 / 导入结构化 / 合并保留 / 速查表**、**内置变量速查专章 / 插入下拉 / 拼错拦截**），共 162 项 |
 | 4 | `e2e-check.mjs` | 起两个不同端口的 HTTP 服务，CDP 驱动浏览器做**真实跨域** POST → OPTIONS 预检 → GET 回读，再对启用 HMAC 的实例验证签名/重放/篡改 |
 
 单项运行：`npm run verify:model` / `verify:backend` / `verify:ui` / `verify:e2e`。
@@ -598,12 +656,19 @@ npm run check
 | 同时写了 `body` 和 `multipart` | 有 `multipart` 就整个走它，`body` 会被忽略；校验器只提醒不报错，删掉其中一个即可 |
 | 导入的 multipart 写法被改了 | 不会：编辑器按值反推写法，不主动编辑就不重写 JSON，字典外自定义键也原样保留 |
 | `{{#file:…}}` 被报成「没有在 params 里声明」 | 先确认写的是带 `#` 的动态值（前端不认 `#`，不会误判）；如果确实写了 `{{参数}}`，就得在 `params` 里声明它 |
-| 导出的 JSON 里找不到 `callback` | 这是正常缺省：左侧「回调 callback」页的开关默认关闭，上游也全走默认值。打卡后再填字段即可 |
+| 导出的 JSON 里找不到 `callback` | 这是正常缺省：左侧「回调 callback」页的开关默认关闭，上游也全走默认值。打开后再填字段即可 |
 | 打开 callback 开关后 JSON 只有 `"callback": {}` | 设计如此，效果与全默认一致；逐个勾左边字段的勾选框才会写入具体值 |
 | `max` 写 0 想禁用回调 | 程序会把它夹成 1；要彻底关掉请写 `enabled: false`（只有布尔 `false` 生效） |
 | 校验说 `allow` 里的 id 不存在 | `run` 动作拉起条目时会被静默跳过、只记日志；改成 `items[].id` 里的值（大小写不敏感）即可 |
 | 导入的配置带 `callback` 但合并后没生效 | 合并模式按约定只动三个数组，顶层 `callback` 与 `name` / `version` 一律保留现有值；改用「清空原有，全量覆盖」才会采用导入文件的值 |
 | 旧版浏览器缓存里没有 callback 编辑区 | 已做兼容：载入 localStorage 时自动补齐 `callback` / `includeCallback` 两个键，不会白屏 |
+| `callback.popup` 写了 `msgbox` 却还是系统框 | 上游只认 `custom` / `gui` / `window` 为自绘，其它值（含 `msgbox`）一律静默回落 `native`；校验器会给出提醒 |
+| 校验提示 `popup` 会回落 native | 值不在 `native` / `custom` / `gui` / `window` 里，或写成了数字/布尔；改成这四个之一即可（大小写不敏感） |
+| `{{@config}}` 被报「没有在 params 里声明」 | 不会：生成器已按上游把 `@` 开头的内置变量排除在参数集合外。如果报的是「不是合法的内置变量」，说明拼错了，见下一条 |
+| 报「不是合法的内置变量」 | `{{@confg}}` / `{{@config.txt}}` / `{{@config:json}}` 这类形似但不合法的写法会被拦下；只用 §3.5 表里的 8 种，`{{{{@config}}}}` 是逃生口不算引用 |
+| 请求头里放 `{{@config}}` 被提醒 | 头值不能带换行，改用 `{{@config.b64}}`（单行纯 ASCII）；大配置还可能撞服务端头长度上限，走 body 更稳 |
+| `multipart` 里用 `{{@config}}` 被提醒 | 那一路不走 HdrExpand，哨兵会留在内容里、原文换行还会破坏 boundary；要用就给 `.b64` |
+| 想要机器指纹却只在 headers 里看到 `{{@fp}}` | `{{#machine}}` 是 AHK 侧 `#` 层动态值，在「发送前展开的动态值」表里；两套算法不同，可同时用 |
 
 ---
 
@@ -624,6 +689,9 @@ npm run check
 | `multipart` 校验规则 | `src/validate.js` 的 `normalizeMultipartForCheck` 与 `case 'multipart'` |
 | `callback` 字段说明 / 行为约定 / 校验 | `src/schema.js` 的 `CALLBACK_FIELDS` / `CALLBACK_RULES` / `README_NOTES`、`src/components/CallbackEditor.vue`、`src/validate.js` 的 `顶层 callback` 段 |
 | `callback` 的导入 / 导出 / 开关 / 旧数据兼容 | `src/model.js` 的 `createCallback` / `stateFromJson` / `buildConfig`、`src/store.js` 的 `normalizeState` 与各全局操作、`src/merge.js` 的 `mergeStates` |
+| `popup` 的枚举 / 别名回落 | `src/schema.js` 的 `CALLBACK_POPUP` / `CALLBACK_POPUP_CUSTOM`、`src/validate.js` 的 `case popup` 段 |
+| 内置变量清单 / 模板正则 / 拼错拦截 | `src/schema.js` 的 `BUILTIN_KEYS` / `BUILTIN_VALUES` / `BUILTIN_RULES`、`src/model.js` 的 `TPL_RE` / `collectTemplateVars` / `collectBuiltinRefs` / `itemBuiltinRefs`、`src/validate.js` 的「内置变量体检」段 |
+| 内置变量插入下拉 / 速查专章 | `src/components/Field.vue` 的 `allInsertables`、`src/components/ReferencePanel.vue` |
 | 单文件产物 | `vite.config.js` 的 `singleFileHtml()` 插件 |
 
 ---
@@ -632,10 +700,15 @@ npm run check
 
 - `launcher.ini`（AHK 侧设置）不属于 `config.json`，本工具不处理。
 - 顶层 `name` / `version` 在启动器 README 里没有单列说明，按「顶层元数据、启动器不读取」保留为可编辑字段。
-- 顶层 `callback` 是上游 `d48be68` 新增的**可选**块；生成器不写它时行为与上游默认值完全一致，
-  也不把它塞进 `meta._extra` 重复持久化。上游 `config.json` 本身不含这个块，因此本项目内置示例同样不含。
+- 顶层 `callback` 是上游 `d48be68` 新增、`03086ae` 补 `popup` 的**可选**块（共 6 个字段）；
+  生成器不写它时行为与上游默认值完全一致，也不把它塞进 `meta._extra` 重复持久化。
+  上游 `config.json` 本身不含这个块，因此本项目内置示例同样不含。
 - `_ql_callback` 是**接口响应**里的键，不是 `config.json` 的配置项；本工具只在「回调 callback」页给出响应示例，
-  不会把它写进导出结果。
+  不会把它写进导出结果。`run` 动作的 `args` / `params` 与 `{{body.…}}` 响应模板同理，都是响应侧内容。
+- `{{@config}}` / `{{@fp}}` 与 `{{#machine}}` 是**模板变量**，不是配置字段，不新增任何 JSON 键；
+  生成器只在字段字典、插入下拉、速查和校验里表达它们。设备指纹的具体值由上游运行时算，
+  本工具不采集、不计算、不预览，也不会写进导出结果。
+- `machine.ini`（机器码缓存 + 本机盐）是上游运行时自动生成的文件，不属于 `config.json`，本工具不处理。
 - `params[].required` 是 `wv2-launcher/ui/app.js` 用到但 README 未记载的兼容字段，已做进子表并在界面标注来源。
 - `dist/index.html` 作为「离线可直接双击使用」的发布物一并入库；`node_modules/` 与临时文件已忽略。
 - 推送远端由使用者手动执行，本仓库的自动化流程不会自动 `git push`。

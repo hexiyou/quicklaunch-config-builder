@@ -8,9 +8,10 @@
 import {
   ITEM_FIELDS, ITEM_FIELD_MAP, GROUP_FIELDS, SCHEDULE_FIELDS, PARAM_FIELDS,
   TOP_FIELDS, ALL_TYPES, HTTP_METHODS, ON_EXISTS, PARAM_TYPES,
-  TEMPLATE_FIELDS, fieldApplies, DAY_OPTIONS
+  TEMPLATE_FIELDS, fieldApplies, DAY_OPTIONS,
+  BUILTIN_KEYS, CALLBACK_POPUP_CUSTOM
 } from './schema.js'
-import { itemTemplateVars } from './model.js'
+import { itemTemplateVars, itemBuiltinRefs } from './model.js'
 
 const ID_RE = /^[A-Za-z0-9_.-]+$/
 const COLOR_RE = /^(#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|(?:rgb|rgba|hsl|hsla)\(.*\)|(?:transparent|currentColor|[a-z]+))$/i
@@ -113,7 +114,16 @@ export function validateAll(state) {
         push('warn', cbWhere, 'onQuiet', `onQuiet 只能是 notify / popup；「${v}」会按 notify 处理（只有 popup 才改变行为）。`)
       }
     }
-    if (inc('enabled') && cb.enabled === false && (inc('max') || inc('maxDepth') || inc('allow') || inc('onQuiet'))) {
+    if (inc('popup')) {
+      const v = cb.popup
+      const known = ['native', ...CALLBACK_POPUP_CUSTOM]
+      if (typeof v !== 'string' || !known.includes(v.trim().toLowerCase())) {
+        push('warn', cbWhere, 'popup',
+          `popup 只认 native / custom / gui / window（大小写不敏感）；「${String(v)}」会被静默回落成 native。`)
+      }
+    }
+    if (inc('enabled') && cb.enabled === false &&
+        ['max', 'maxDepth', 'allow', 'onQuiet', 'popup'].some(inc)) {
       push('warn', cbWhere, 'enabled', 'enabled:false 时整块回调被忽略，其余字段写了也不生效。')
     }
     for (const k of Object.keys(cb._extra || {})) {
@@ -318,7 +328,37 @@ export function validateAll(state) {
         push('warn', where, 'params', `字段里出现了 {{${vars.join('}} / {{')}}}，但没声明 params —— 会原样直传（也可能本来就是字面量）。`)
       }
     }
-    if (it._include?.workdir && /\{\{[\w.-]+\}\}/.test(String(it.workdir))) {
+    /* 内置变量体检（对齐上游 builtinIssues / hasBuiltin）：
+       @ 开头的不算参数，但拼错会在执行前挂成 tplErr 拦下，不能原样发给远端。 */
+    const builtinSeen = new Set()
+    for (const { field: fk, ref } of itemBuiltinRefs(it)) {
+      const name = ref.slice(1)
+      if (!BUILTIN_KEYS.has(name)) {
+        const key = 'bad:' + fk + ':' + ref
+        if (!builtinSeen.has(key)) {
+          builtinSeen.add(key)
+          push('error', where, fk,
+            `{{${ref}}} 不是合法的内置变量，执行前会被拦下；可用 {{@config}} / {{@config.raw}} / {{@config.b64}} / {{@fp}} 一族。`)
+        }
+        continue
+      }
+      if (fk === 'headers' && ['config', 'config.json', 'config.raw'].includes(name)) {
+        const key = 'hdr:' + name
+        if (!builtinSeen.has(key)) {
+          builtinSeen.add(key)
+          push('warn', where, 'headers', `请求头里 {{@${name}}} 会带换行，请改用 {{@config.b64}}（单行纯 ASCII）。`)
+        }
+      }
+      if (fk === 'multipart' && name.indexOf('config') === 0) {
+        const key = 'mp:' + name
+        if (!builtinSeen.has(key)) {
+          builtinSeen.add(key)
+          push('warn', where, 'multipart', `{{@${name}}} 不建议用在 multipart：那一路不走 HdrExpand，哨兵会留在内容里、原文换行还会破坏 boundary；要用就给 .b64。`)
+        }
+      }
+    }
+
+    if (it._include?.workdir && /\{\{\s*@?[\w.-]+\s*\}\}/.test(String(it.workdir))) {
       push('warn', where, 'workdir', 'workdir 不参与模板替换（载入时就展开成绝对路径了），{{x}} 会原样留在路径里。')
     }
     if (type === 'url' || type === 'folder') {

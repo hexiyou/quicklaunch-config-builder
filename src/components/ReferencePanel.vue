@@ -3,11 +3,14 @@ import {
   ITEM_FIELDS, PARAM_FIELDS, GROUP_FIELDS, SCHEDULE_FIELDS, TOP_FIELDS,
   CALLBACK_FIELDS, CALLBACK_RULES,
   ITEM_TYPES, TARGET_RULES, TEMPLATE_RULES, TEMPLATE_FIELDS,
-  DYNAMIC_VALUES, DYNAMIC_RULES, README_NOTES
+  DYNAMIC_VALUES, DYNAMIC_RULES, BUILTIN_VALUES, BUILTIN_RULES, README_NOTES
 } from '../schema.js'
 
 const appliesText = f => f.applies ? f.applies.join(' · ') : '全部类型'
 const reqText = f => f.required ? '必填' : '可选'
+// 含花括号的文案必须走 JS 常量，Vue 模板会把字面 {{…}} 当插值解析
+const MACHINE_TPL = '{{#machine}}'
+const MACHINE_SHORT_TPL = '{{#machine:short}}'
 </script>
 
 <template>
@@ -107,8 +110,8 @@ const reqText = f => f.required ? '必填' : '可选'
     <div class="ref-block">
       <h3 class="ref-title">顶层 callback 回调块（{{ CALLBACK_FIELDS.length }} 个字段）</h3>
       <p class="ref-sub">
-        上游 d48be68 新增。整个块可选，不写就是默认值
-        <span class="mono">enabled=true · max=5 · maxDepth=5 · allow=[] · onQuiet=notify</span>；
+        上游 d48be68 新增、03086ae 补了 <span class="mono">popup</span>。整个块可选，不写就是默认值
+        <span class="mono">enabled=true · max=5 · maxDepth=5 · allow=[] · onQuiet=notify · popup=native</span>；
         左侧「回调 callback」页可开关并逐字段编辑，生成器把它排在导出 JSON 的末尾。
       </p>
       <table class="ref-table">
@@ -164,6 +167,23 @@ const reqText = f => f.required ? '必填' : '可选'
         </tbody>
       </table>
       <ul class="ref-list mt10"><li v-for="(r, i) in DYNAMIC_RULES" :key="i">{{ r }}</li></ul>
+    </div>
+
+    <!-- 内置变量 -->
+    <div class="ref-block">
+      <h3 class="ref-title">内置变量 @ 一族（{{ BUILTIN_VALUES.length }} 种，不需要声明 params）</h3>
+      <p class="ref-sub">
+        上游 713398e / d76e27b 新增。<span class="mono">@</span> 开头的是「环境」不是「参数」：
+        不进 params 变量集合，也不参与「被模板消耗的参数不再追加」。在编辑区任意生效字段的「插入」下拉里都能选。
+        另有 AHK 侧的 <span class="mono">{{ MACHINE_TPL }}</span> / <span class="mono">{{ MACHINE_SHORT_TPL }}</span>，见上表。
+      </p>
+      <table class="ref-table">
+        <thead><tr><th>写法</th><th>结果 / 用途</th></tr></thead>
+        <tbody>
+          <tr v-for="b in BUILTIN_VALUES" :key="b.tpl"><td class="mono">{{ b.tpl }}</td><td>{{ b.desc }}</td></tr>
+        </tbody>
+      </table>
+      <ul class="ref-list mt10"><li v-for="(r, i) in BUILTIN_RULES" :key="i">{{ r }}</li></ul>
     </div>
 
     <!-- 约定 -->

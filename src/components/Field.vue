@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { setInclude, ensureUsable } from '../model.js'
-import { DYNAMIC_VALUES, PARAM_TYPES, DAY_OPTIONS, DAY_PRESETS } from '../schema.js'
+import { DYNAMIC_VALUES, BUILTIN_VALUES, TEMPLATE_FIELDS, PARAM_TYPES, DAY_OPTIONS, DAY_PRESETS } from '../schema.js'
 import KvEditor from './KvEditor.vue'
 import ParamsEditor from './ParamsEditor.vue'
 import MultipartEditor from './MultipartEditor.vue'
@@ -64,7 +64,10 @@ const tplVars = computed(() => {
 })
 const allInsertables = computed(() => {
   const own = tplVars.value.map(v => ({ tpl: `{{${v}}}`, desc: '参数：' + v }))
-  return ['headers', 'body'].includes(props.field.key) ? [...own, ...DYNAMIC_VALUES] : own
+  // 内置变量在全部 TPL_FIELDS 生效；# 动态值只有 headers / body 会展开
+  if (!TEMPLATE_FIELDS.includes(props.field.key)) return own
+  const dyn = ['headers', 'body'].includes(props.field.key) ? DYNAMIC_VALUES : []
+  return [...own, ...BUILTIN_VALUES, ...dyn]
 })
 const insertChoice = ref('')
 function insertTpl(targetRef) {

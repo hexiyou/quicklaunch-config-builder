@@ -89,6 +89,17 @@ export const ON_QUIET = [
   { value: 'popup', label: 'popup · 照常弹消息框' }
 ]
 
+/** 顶层 callback.popup：上游 cbCfg() 只认 custom / gui / window → custom，
+ *  其它一切值（含 native / msgbox / 数字 / 拼错）都静默回落 native。 */
+export const CALLBACK_POPUP = [
+  { value: 'native', label: 'native · 系统消息框 + Owner（缺省）' },
+  { value: 'custom', label: 'custom · 自绘置顶窗口（非模态）' },
+  { value: 'gui', label: 'gui · custom 的别名' },
+  { value: 'window', label: 'window · custom 的别名' }
+]
+
+export const CALLBACK_POPUP_CUSTOM = ['custom', 'gui', 'window']
+
 export const PARAM_TYPES = [
   { value: '', label: '（不指定）' },
   { value: 'path', label: 'path · 路径补全' },
@@ -475,6 +486,7 @@ export const SCHEDULE_FIELDS = [
  *   maxDepth  同上，两个上限互相独立
  *   allow     Array.isArray ? map(String):[] → 非空时按小写比对条目 id
  *   onQuiet   'popup'（忽略大小写）→ popup，其余一律 notify
+ *   popup     03086ae 新增：custom/gui/window → custom，其余一律 native
  */
 export const CALLBACK_FIELDS = [
   {
@@ -508,19 +520,29 @@ export const CALLBACK_FIELDS = [
     desc: '「有没有人在看」沿链继承：定时任务触发的链，notify = 托盘提示 + 日志不弹模态框，popup = 照常弹框。手动点出来的链第二跳照常弹。',
     format: 'notify | popup · 缺省 notify（只有写 popup，忽略大小写，才改成 popup）',
     doc: '四、配置说明 → 回调 · 两个 quiet / 开关与白名单'
+  },
+  {
+    key: 'popup', label: '提示框机制 popup', kind: 'select', required: false, default: 'native',
+    options: CALLBACK_POPUP,
+    desc: '用哪套提示框：native = 系统消息框 + Owner<主窗口>（缺省，模态、系统提示音、Ctrl+C 复制正文、按主窗口居中）；custom = 自绘置顶窗口（非模态、成功绿/失败红、长正文屏上截断）。也认 gui / window 别名；写成别的值一律静默回落 native。注意：动作里的 "type":"popup" 只是 msg 的别名，和这个配置键不相干。',
+    format: 'native | custom（也认 gui / window）· 缺省 native；大小写不敏感，未知值回落 native',
+    doc: '四、配置说明 → 回调 · 两套提示框 / 开关与白名单'
   }
 ]
 
 export const CALLBACK_FIELD_MAP = Object.fromEntries(CALLBACK_FIELDS.map(f => [f.key, f]))
 
-/** 速查面板用：回调的运行时约定（这些不是配置字段，但决定了上面五个值怎么填） */
+/** 速查面板用：回调的运行时约定（这些不是配置字段，但决定了上面六个值怎么填） */
 export const CALLBACK_RULES = [
   '响应 JSON 的根对象第一层带 _ql_callback 才触发；{"data":{"_ql_callback":…}} 这类深层同名不触发（防撞 + 防误伤）。',
   '没有这个键时一切照旧 —— 现有接口一个字都不用改；整个 callback 块不写也全走默认值。',
   'actions 按顺序执行，两类：msg（text 必填；level 认 success/error 及 ok/fail，title 默认 QuickLaunch，timeout 秒、0/缺省 = 不自动关）；run（id，等同 ql run <id>，8 种 type 都能拉）。',
   '宽容写法：_ql_callback 直接是数组 / 单个动作对象、actions 给成单个对象都认；msg / run 还认 popup / exec 别名。',
   '_ql_callback.v 是协议版本，缺省按 1；写成 2 这类更大的数会被整块忽略并记日志（老程序不被新协议带偏）。',
-  '先回执、再执行：结果面板/命令行的回执先落地，回调副作用推到下一拍，模态消息框不会把 ql run x --wait 堵住。',
+  'run 可以带运行时参数：args 等价于手打那串（也认数组，值里带空格会自动补引号）；params 按参数名给值、走条目自己的 params 声明，不经文本切分所以空格标点都拆不坏。两者可一起用，params 覆盖同名那份。条目没声明 params 时按顺序当文本参数用，声明了但名字写错会忽略并记日志。',
+  '动作执行前会用这次响应填模板：{{body.a.b}} / {{body}} / {{status}} / {{ms}} / {{error}} / {{from.id}} / {{from.name}}，数组下标 [0] 与 .0 都认，{{{{ }}}} 转义。取不到的按空串处理并在日志点名；msg 的 text / title 同样支持。这和条目自己的「{{参数}}」是两层：一层来自远端响应，一层来自本次给的参数，别混。',
+  '提示框有两套，由配置键 callback.popup 选（缺省 native）：native = 系统消息框 + Owner<主窗口>，模态、有系统提示音 / Ctrl+C 复制正文 / 按主窗口居中；custom = 自绘置顶窗口，非模态、成功绿失败红、长正文屏上截断。也认 gui / window 别名，写成别的值一律回落 native。主窗口不在屏幕上时 native 会自动改走 custom。',
+  '先回执、再执行：结果面板/命令行的回执先落地，回调副作用推到下一拍，提示框不会把 ql run x --wait 堵住。动作时序看 actions 顺序，别拿「框关没关」当时序。',
   '防环判「祖先」不判「访问过」：A 同时调 B 和 C 都放行（兄弟），B 再调回 A 才挡；链深到 maxDepth 也阻断。',
   '链上的请求一律 quiet（不占结果面板）；onQuiet 决定定时任务触发的链弹不弹模态框，手动点出来的链不受影响。',
   'run 的忽略清单全部静默跳过、只记日志：id 不存在、enabled:false、缺必填参数、模板变量写错、不在 allow 白名单。',
@@ -548,7 +570,44 @@ export const DYNAMIC_VALUES = [
   { tpl: '{{#base64:文本}}', desc: '文本按 UTF-8 编码后的 Base64（带 = 补位）' },
   { tpl: '{{#base64url:文本}}', desc: 'base64url：+→-、/→_、去掉 =' },
   { tpl: '{{#hmac:密钥名:待签内容}}', desc: 'HMAC-SHA256；密钥取自 launcher.ahk 的 SIG_KEYS' },
-  { tpl: '{{#hmac-md5:密钥名:内容}}', desc: '换算法，另有 hmac-sha1 / sha256 / sha384 / sha512' }
+  { tpl: '{{#hmac-md5:密钥名:内容}}', desc: '换算法，另有 hmac-sha1 / sha256 / sha384 / sha512' },
+  { tpl: '{{#machine}}', desc: '本机机器码 MC1-…（32 hex）：AHK 读 WMI 主板 + 系统盘，首次约 70ms、之后走 machine.ini 缓存' },
+  { tpl: '{{#machine:short}}', desc: '同上，只留前两段（21 字符），手抄 / 电话报读用' }
+]
+
+/**
+ * 内置变量（上游 713398e / d76e27b）。
+ * 名字前面的 @ 是「内置」的门牌：它们不是 params，也不参与「被模板消耗的参数不再追加」。
+ * 键名集合严格对齐 ui/app.js 的 BUILTIN_KEYS；写错的 @ 变量由 builtinIssues() 在执行前拦下。
+ */
+export const BUILTIN_KEYS = new Set([
+  'config', 'config.json', 'config.raw', 'config.b64',
+  'fp', 'fp.short', 'fp.bound', 'fp.parts'
+])
+
+export const BUILTIN_VALUES = [
+  { tpl: '{{@config}}', desc: 'config.json 全文：JSON 字符串内容（引号/反斜杠/换行都转义好）。不带修饰时按 body 形态自动选，见下' },
+  { tpl: '{{@config.json}}', desc: '{{@config}} 的别名，写全一点更好读' },
+  { tpl: '{{@config.raw}}', desc: '原文，多行原样；适合对象 body、text/plain、要按字节比对的地方' },
+  { tpl: '{{@config.b64}}', desc: 'UTF-8 → Base64，单行纯 ASCII；唯一能安全放进请求头的形式' },
+  { tpl: '{{@fp}}', desc: '浏览器指纹 FP1-…（页面 JS 算，Edge 升级不变）' },
+  { tpl: '{{@fp.short}}', desc: '同上，只留前两段；放请求头 / URL' },
+  { tpl: '{{@fp.bound}}', desc: 'FPB1-…：再拌一次 AHK 生成的本机盐，只在本机可复算；没盐时等于 {{@fp}}' },
+  { tpl: '{{@fp.parts}}', desc: '明细串（v=1|os=…|cores=…），排查 / 服务端做差分用' }
+]
+
+export const BUILTIN_RULES = [
+  '内置变量是「环境」不是「参数」：不需要声明 params。没声明 params 的条目本来整条不替换、{{x}} 原样直传，内置变量是唯一的例外（配置里一个 {{@ 都没有时仍是一个字节都不动）。',
+  '上游模板正则认 @ 与名字两侧的空格：{{@config}} 与 {{ @config }} 等价；@ 开头的不进 tplVars，不算「引用了没声明的变量」，也不参与参数追加判断。',
+  '拼错会被拦：{{@confg}} / {{@config.txt}} / {{@config:json}} 这类形似而不合法的写法会挂成 tplErr，执行前报错、不发请求，绝不把一段占位符原样发给远端。{{{{@config}}}} 是逃生口，不算引用。',
+  '{{@config}} 不会被二次展开：塞进去的是 config.json 磁盘原文，里面的 {{x}} 不会再跑一遍模板；注入时会把 {{# 换成哨兵躲开 AHK 的 HdrExpand，收尾字节级复原，所以备份里的签名占位符还是字面量。',
+  '不带修饰时按 body 形态自动选：body 是对象 → 给原文（随后 JSON.stringify 会转义一次，抢先转义会双重转义）；body 是字符串 → 给转义形。要原文请显式写 .raw。',
+  '请求头只能用 .b64：头值不能带换行，大配置还可能撞服务端头长度上限（常见 8 KB），大配置走 body。',
+  '别把 {{@config}} 用在 multipart 里：那一路不走 HdrExpand，哨兵字符会留在内容里，原文的换行还会破坏 boundary；确实要用就给 .b64。',
+  '全文外发：config.json 里有什么就发什么，包括接口地址、token、路径；{{#machine}} / {{@fp}} 也含硬件特征。目标地址要可信。',
+  '{{@fp}} 不是秘密：为了能被任意纯 JS 重算，算法就得在 JS 里。真正藏住的只有 {{@fp.bound}} 的本机盐（在 machine.ini，不在 JS）；纯浏览器打开时没有盐，bound 等于 fp，那一刻不能当绑定凭据。',
+  '{{@fp}} 只采平台 / 核数 / 内存 / 屏幕 / 色深 / 语言 / 时区 / 触摸点等稳定信号，刻意不采 UA 版本号、canvas、WebGL、DPR —— 所以 Edge 升级不漂，代价是同型号办公机可能撞值。改分辨率 / 时区 / 语言 / 硬件会变，改缩放、挪任务栏不会。',
+  '{{#machine}} 是 AHK 侧的 # 层动态值（WMI 只有 AHK 碰得到），和 {{@fp}} 是两套算法。请求头里能用、还能嵌进签名 {{#hmac:demo:{machine}}}；NVMe 盘序列号是占位值时会降级到 PNP 实例路径。'
 ]
 
 export const DYNAMIC_RULES = [
@@ -559,9 +618,10 @@ export const DYNAMIC_RULES = [
   '认不出来的一律原样保留（大小写敏感），不会误伤老配置里的字面量。',
   '密钥名写错、环境变量取不到、展开后带 CR/LF（请求头注入）都会拒发。',
   '{{#file:…}} 默认裁尾部换行，{{#file-raw:…}} 才保留；二进制文件改用 {{#filebase64:…}} 或 multipart。',
-  '摘要 / Base64 / HMAC 的参数里可用单花括号 {ts} {tsms} {uuid} {nonce:N} 引用动态值。',
+  '摘要 / Base64 / HMAC 的参数里可用单花括号 {ts} {tsms} {uuid} {nonce:N} {machine} 引用动态值（单花括号只认这五个，不支持再套 hmac）。',
   '不要写成 {{#hmac:demo:{{#ts}}}} —— 收尾会凑出 }}}} 被当成转义，改用 {ts}。',
-  '模板内联上限 2MB，multipart 单文件上限 8MB；{{#file:路径}} 里的路径不能带裸花括号。'
+  '模板内联上限 2MB，multipart 单文件上限 8MB；{{#file:路径}} 里的路径不能带裸花括号。',
+  '{{#machine}} 由 AHK 读 WMI（主板 + 系统盘）算，缓存在 machine.ini；NVMe 序列号是占位值时会逐级降级到 PNP 实例路径 / 卷序列号 / MachineGuid。它能进请求头，也能写成 {{#hmac:demo:{machine}}} 嵌进签名。'
 ]
 
 export const TARGET_RULES = [
@@ -576,7 +636,7 @@ export const TARGET_RULES = [
 export const TEMPLATE_FIELDS = ['target', 'args', 'query', 'headers', 'body', 'savePath', 'fileName', 'multipart']
 
 export const TEMPLATE_RULES = [
-  '只有声明了 params 的条目才替换；没声明就整条不替换，{{x}} 原样直传（老配置一个字节都不变）。',
+  '只有声明了 params 的条目才替换；没声明就整条不替换，{{x}} 原样直传（老配置一个字节都不变）。唯一例外是内置变量 {{@config}} / {{@fp}}：它是「环境」不是「参数」，不需要声明也会替换。',
   '被模板用掉的参数不再追加到末尾；没用到的照旧按声明顺序追加。',
   '引用了没声明的变量 → 拒绝执行，不静默替换成空串（错误消息里会列出变量名）。',
   '{{{{ 输出字面 {{，}}}} 输出字面 }} —— 给「参数本身就是模板语法」留逃生口。',
@@ -593,7 +653,9 @@ export const README_NOTES = [
   { title: '分组', text: '分组只影响过滤，不影响启动；条目没有 group 就归「未分组」；groups 不写也能跑（只是没有胶囊栏）。' },
   { title: '定时调度', text: 'at 与 every 必须二选一，days 只跟 at 搭；写错的那一条只跳过自己，原因写进 sched.log，不影响别的任务。不配 schedules 连日志都不会生成。' },
   { title: '请求失败排查', text: '带状态码（401/403/429/503）是服务端回话了；没有状态码（DNS / TLS / 超时 / 连接被中断）是根本没聊上。' },
-  { title: '回调（顶层 callback）', text: '整个块可选，不写就是 enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify。响应根对象第一层带 _ql_callback 才触发；allow 非空时只有列出的 id 能被 run 拉起。' }
+  { title: '回调（顶层 callback）', text: '整个块可选，不写就是 enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify / popup=native。响应根对象第一层带 _ql_callback 才触发；allow 非空时只有列出的 id 能被 run 拉起。' },
+  { title: '内置变量 vs 参数', text: '{{@config}} / {{@fp}} 带 @，是内置变量，不需要声明 params，也不算「引用了没声明的变量」；{{x}} 才是参数。拼错的 @ 变量（{{@confg}} 之类）会在执行前报错拦下，不会原样发给远端。' },
+  { title: '两套设备指纹', text: '{{#machine}} 是 AHK 读 WMI 算的机器码（MC1-…），{{@fp}} 是页面 JS 算的浏览器指纹（FP1-…）。前者能进请求头和签名，后者在别的网页应用里能复算；只有 {{@fp.bound}} 拌了本机盐。两边都含硬件特征，目标地址要可信。' }
 ]
 
 /* --------------------------------------------------------------- 工具 */

@@ -274,16 +274,17 @@ const same = (a, b) => { try { assert.deepStrictEqual(a, b); return true } catch
 const cbIssues = st => m.validateAll(st).filter(x => x.where === '顶层 · callback')
 
 /* 7.1 字段字典与默认值口径 */
-bc('CALLBACK_FIELDS 为上游的 5 个字段',
-  m.CALLBACK_FIELDS.map(f => f.key).join(',') === 'enabled,max,maxDepth,allow,onQuiet',
+bc('CALLBACK_FIELDS 为上游的 6 个字段',
+  m.CALLBACK_FIELDS.map(f => f.key).join(',') === 'enabled,max,maxDepth,allow,onQuiet,popup',
   m.CALLBACK_FIELDS.map(f => f.key).join(','))
-bc('5 个字段全部是可选，且默认值与 cbCfg() 一致',
+bc('6 个字段全部是可选，且默认值与 cbCfg() 一致',
   m.CALLBACK_FIELDS.every(f => f.required === false) &&
   m.CALLBACK_FIELD_MAP.enabled.default === true &&
   m.CALLBACK_FIELD_MAP.max.default === 5 &&
   m.CALLBACK_FIELD_MAP.maxDepth.default === 5 &&
   same(m.CALLBACK_FIELD_MAP.allow.default, []) &&
-  m.CALLBACK_FIELD_MAP.onQuiet.default === 'notify')
+  m.CALLBACK_FIELD_MAP.onQuiet.default === 'notify' &&
+  m.CALLBACK_FIELD_MAP.popup.default === 'native')
 bc('onQuiet 枚举只有 notify / popup',
   m.CALLBACK_FIELD_MAP.onQuiet.options.map(o => o.value).join(',') === 'notify,popup')
 bc('速查新增 callback 行为约定与 README 条目',
@@ -334,8 +335,8 @@ function cbState(fields, items = []) {
   return st
 }
 bc('合法 callback 全字段：0 错误 0 提醒',
-  cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup' })).length === 0,
-  JSON.stringify(cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup' }))))
+  cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup', popup: 'custom' })).length === 0,
+  JSON.stringify(cbIssues(cbState({ enabled: true, max: 5, maxDepth: 5, allow: [], onQuiet: 'popup', popup: 'custom' }))))
 bc('enabled 写成字符串被拦成 error',
   cbIssues(cbState({ enabled: 'false' })).some(x => x.level === 'error' && x.field === 'enabled'))
 for (const [label, val, re] of [
@@ -384,5 +385,106 @@ bc('at / every 文案已补宽松写法',
   /时、分可只写一位/.test(m.SCHEDULE_FIELDS.find(f => f.key === 'at').format) &&
   /纯数字/.test(m.SCHEDULE_FIELDS.find(f => f.key === 'every').format))
 console.log(`  → callback / 文案口径用例 ${bPass} 通过 / ${bFail} 失败`)
+
+/* ---------------------------------------------- 8. 跟进 32ede80 / 03086ae / 713398e / d76e27b */
+console.log('\n🧬 popup / 内置变量 / 设备指纹检查：')
+let dPass = 0
+let dFail = 0
+const dc = (name, cond, extra) => {
+  if (cond) { dPass += 1; console.log('  ✅ ' + name) }
+  else { dFail += 1; console.log('  ❌ ' + name + (extra ? ' | ' + extra : '')); process.exitCode = 1 }
+}
+
+/* 8.1 callback.popup（03086ae） */
+dc('CALLBACK_POPUP 四个选项，别名集合与 cbCfg() 一致',
+  m.CALLBACK_POPUP.map(o => o.value).join(',') === 'native,custom,gui,window' &&
+  m.CALLBACK_POPUP_CUSTOM.join(',') === 'custom,gui,window')
+for (const v of ['native', 'custom', 'gui', 'window']) {
+  const j = { items: [], callback: { popup: v } }
+  dc(`popup=${v}：导入→导出逐字段无损`, same(m.buildConfig(m.stateFromJson(j)), j))
+  dc(`popup=${v}：校验 0 提醒`, cbIssues(m.stateFromJson(j)).length === 0,
+    JSON.stringify(cbIssues(m.stateFromJson(j)).map(x => x.msg)))
+}
+dc('popup 大小写不敏感（CUSTOM 不报）', cbIssues(cbState({ popup: 'CUSTOM' })).length === 0)
+for (const [label, bad] of [['msgbox', 'msgbox'], ['数字', 1], ['拼错', 'costom']]) {
+  dc(`popup 写成${label} → warn「回落 native」`,
+    cbIssues(cbState({ popup: bad })).some(x => x.level === 'warn' && x.field === 'popup' && /native/.test(x.msg)),
+    JSON.stringify(cbIssues(cbState({ popup: bad })).map(x => x.msg)))
+}
+dc('enabled:false 同时写 popup 也提醒不生效',
+  cbIssues(cbState({ enabled: false, popup: 'custom' })).some(x => /不生效/.test(x.msg)))
+dc('空 callback 仍输出 {}，不注入 popup 默认值',
+  same(m.buildConfig(m.stateFromJson({ items: [], callback: {} })).callback, {}))
+
+/* 8.2 内置变量清单与扫描口径（713398e / d76e27b） */
+dc('BUILTIN_KEYS 为上游的 8 个键',
+  [...m.BUILTIN_KEYS].join(',') === 'config,config.json,config.raw,config.b64,fp,fp.short,fp.bound,fp.parts',
+  [...m.BUILTIN_KEYS].join(','))
+dc('BUILTIN_VALUES 8 条与键集合一一对应',
+  m.BUILTIN_VALUES.length === 8 &&
+  m.BUILTIN_VALUES.every(v => m.BUILTIN_KEYS.has(v.tpl.replace(/^\{\{@|\}\}$/g, ''))))
+dc('DYNAMIC_VALUES 补到 20 条，含 machine 两种写法',
+  m.DYNAMIC_VALUES.length === 20 &&
+  ['{{#machine}}', '{{#machine:short}}'].every(t => m.DYNAMIC_VALUES.some(d => d.tpl === t)))
+dc('TPL_RE 认名字两侧空格、跳过 @ 内置变量与 # 动态值、剔除转义口',
+  same(m.collectTemplateVars('{{ a }} {{ @config }} {{#ts}} {{{{@fp}}}} {{bad.name}}'), ['a', 'bad.name']),
+  JSON.stringify(m.collectTemplateVars('{{ a }} {{ @config }} {{#ts}} {{{{@fp}}}} {{bad.name}}')))
+dc('宽正则抓到拼错的 @ 变量，且不把转义口当引用',
+  same(m.collectBuiltinRefs('{{@config}} {{@confg}} {{@config:json}} {{{{@fp}}}}'),
+    ['@config', '@confg', '@config:json']),
+  JSON.stringify(m.collectBuiltinRefs('{{@config}} {{@confg}} {{@config:json}} {{{{@fp}}}}')))
+
+const itemWith = extra => m.stateFromJson({ items: [{
+  id: 'bk', name: '备份', type: 'webhook',
+  target: 'https://api.example.com/snapshot', method: 'POST', ...extra
+}] })
+const itemErrs = extra => m.validateAll(itemWith(extra)).filter(x => x.level === 'error')
+const itemWarns = extra => m.validateAll(itemWith(extra)).filter(x => x.level === 'warn')
+
+dc('itemTemplateVars 对纯内置变量返回空（不算 params 变量）',
+  m.itemTemplateVars(itemWith({ body: { snapshot: '{{@config}}' } }).items[0]).length === 0)
+dc('合法内置变量：0 错误，且没声明 params 也不提醒',
+  itemErrs({ body: { snapshot: '{{@config}}' } }).length === 0 &&
+  !itemWarns({ body: { snapshot: '{{@config}}' } }).some(x => x.field === 'params'),
+  JSON.stringify(m.validateAll(itemWith({ body: { snapshot: '{{@config}}' } })).map(x => x.msg)))
+dc('{{@fp.bound}} / {{@fp.parts}} 合法',
+  itemErrs({ body: '{{@fp.bound}} {{@fp.parts}}' }).length === 0)
+dc('内置变量与 params 混用不算「未声明」',
+  itemErrs({ body: '{{@config}} {{who}}', params: [{ name: 'who' }] }).length === 0,
+  JSON.stringify(itemErrs({ body: '{{@config}} {{who}}', params: [{ name: 'who' }] }).map(x => x.msg)))
+for (const bad of ['@confg', '@config.txt', '@config:json']) {
+  dc(`拼错的 {{${bad}}} → error 拦下`,
+    itemErrs({ body: '{{' + bad + '}}' }).some(x => /不是合法的内置变量/.test(x.msg)),
+    JSON.stringify(itemErrs({ body: '{{' + bad + '}}' }).map(x => x.msg)))
+}
+dc('{{{{@config}}}} 是逃生口，不报内置变量错误',
+  itemErrs({ body: '{{{{@config}}}}' }).length === 0)
+dc('headers 里用 {{@config}} → 提醒改用 .b64',
+  itemWarns({ headers: { 'X-Config': '{{@config}}' } }).some(x => x.field === 'headers' && /b64/.test(x.msg)))
+dc('headers 里用 {{@config.b64}} → 不提醒',
+  !itemWarns({ headers: { 'X-Config': '{{@config.b64}}' } }).some(x => /b64/.test(x.msg)))
+dc('multipart 里用 {{@config}} → 提醒 boundary 风险',
+  itemWarns({ multipart: { field: 'f', path: '{{@config}}' } })
+    .some(x => x.field === 'multipart' && /boundary/.test(x.msg)))
+
+/* 8.3 文案口径 */
+dc('模板四条边界第 1 条补上内置变量例外',
+  /内置变量/.test(m.TEMPLATE_RULES[0]) && /@config/.test(m.TEMPLATE_RULES[0]))
+dc('单花括号动态值清单补了 {machine}',
+  m.DYNAMIC_RULES.some(r => r.includes('{machine}')))
+dc('CALLBACK_RULES 含 args / params、响应模板与两套弹窗',
+  m.CALLBACK_RULES.length === 14 &&
+  m.CALLBACK_RULES.some(r => r.includes('args') && r.includes('params')) &&
+  m.CALLBACK_RULES.some(r => r.includes('{{body.a.b}}')) &&
+  m.CALLBACK_RULES.some(r => r.includes('callback.popup')))
+dc('BUILTIN_RULES 覆盖拼错拦截 / .b64 头 / multipart 禁忌 / fp 不是秘密',
+  m.BUILTIN_RULES.length >= 10 &&
+  m.BUILTIN_RULES.some(r => /拼错/.test(r)) && m.BUILTIN_RULES.some(r => /b64/.test(r)) &&
+  m.BUILTIN_RULES.some(r => /multipart/.test(r)) && m.BUILTIN_RULES.some(r => /不是秘密/.test(r)))
+dc('README_NOTES 补内置变量与两套设备指纹，回调默认值含 popup',
+  m.README_NOTES.some(n => /内置变量/.test(n.title)) &&
+  m.README_NOTES.some(n => /设备指纹/.test(n.title)) &&
+  m.README_NOTES.some(n => /popup=native/.test(n.text)))
+console.log(`  → popup / 内置变量 / 指纹用例 ${dPass} 通过 / ${dFail} 失败`)
 
 console.log('\n完成。')

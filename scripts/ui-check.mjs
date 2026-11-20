@@ -387,8 +387,8 @@ const inject = `
 
       cbSwitch().click(); await wait(450);
       ok('启用后输出空 callback 块（不注入默认值）', JSON.stringify(cbCfg()) === '{}', JSON.stringify(cbCfg()));
-      ok('启用后渲染 5 个字段', cbRows().length === 5, cbRows().length + ' 行');
-      ok('5 个字段名齐全', ['enabled', 'max', 'maxDepth', 'allow', 'onQuiet'].every(k => !!cbRow(k)));
+      ok('启用后渲染 6 个字段', cbRows().length === 6, cbRows().length + ' 行');
+      ok('6 个字段名齐全', ['enabled', 'max', 'maxDepth', 'allow', 'onQuiet', 'popup'].every(k => !!cbRow(k)));
       ok('callback 排在导出 JSON 末尾', Object.keys(cfg() || {}).at(-1) === 'callback', Object.keys(cfg() || {}).join(','));
 
       cbRow('max').querySelector('.include-toggle').click(); await wait(380);
@@ -402,6 +402,20 @@ const inject = `
       quietSel.value = 'popup';
       quietSel.dispatchEvent(new Event('change', { bubbles: true })); await wait(420);
       ok('onQuiet=popup 写入 JSON', cbCfg()?.onQuiet === 'popup', JSON.stringify(cbCfg()));
+
+      // 03086ae：popup 两套提示框，四个选项（含别名）
+      cbRow('popup').querySelector('.include-toggle').click(); await wait(380);
+      const popupSel = cbRow('popup').querySelector('select');
+      ok('popup 下拉含 native / custom / gui / window 四项', popupSel?.options.length === 4,
+        popupSel ? Array.from(popupSel.options).map(o => o.value).join(',') : 'no select');
+      popupSel.value = 'custom';
+      popupSel.dispatchEvent(new Event('change', { bubbles: true })); await wait(420);
+      ok('popup=custom 写入 JSON', cbCfg()?.popup === 'custom', JSON.stringify(cbCfg()));
+      popupSel.value = 'gui';
+      popupSel.dispatchEvent(new Event('change', { bubbles: true })); await wait(420);
+      ok('popup 别名 gui 也可选', cbCfg()?.popup === 'gui', JSON.stringify(cbCfg()));
+      popupSel.value = 'custom';
+      popupSel.dispatchEvent(new Event('change', { bubbles: true })); await wait(350);
 
       cbRow('allow').querySelector('.include-toggle').click(); await wait(380);
       const allowInput = cbRow('allow').querySelector('input.input');
@@ -448,12 +462,53 @@ const inject = `
       // 速查页新增 callback 字段表
       tab('字段速查'); await wait(420);
       ok('速查顶层字段表列出 callback', body().indexOf('顶层可选回调块') >= 0);
-      ok('速查 callback 专章含 5 个字段', body().indexOf('顶层 callback 回调块（5 个字段）') >= 0);
-      ok('速查 callback 默认值说明', body().indexOf('maxDepth=5') >= 0);
+      ok('速查 callback 专章含 6 个字段', body().indexOf('顶层 callback 回调块（6 个字段）') >= 0);
+      ok('速查 callback 默认值说明含 popup', body().indexOf('popup=native') >= 0);
+      ok('速查 callback 字段表列出 popup', body().indexOf('用哪套提示框') >= 0);
+      ok('速查回调约定含两套弹窗与 args/params',
+        body().indexOf('callback.popup') >= 0 && body().indexOf('运行时参数') >= 0);
+      ok('速查新增内置变量专章（8 种）', body().indexOf('内置变量 @ 一族（8 种') >= 0);
+      ok('速查内置变量表含 @config.b64 / @fp.bound',
+        body().indexOf('{{@config.b64}}') >= 0 && body().indexOf('{{@fp.bound}}') >= 0);
+      ok('速查内置变量规则含拼错拦截与 .b64 头',
+        body().indexOf('拼错会被拦') >= 0 && body().indexOf('请求头只能用 .b64') >= 0);
+      ok('速查动态值表补了 machine 两种写法',
+        body().indexOf('{{#machine}}') >= 0 && body().indexOf('{{#machine:short}}') >= 0);
+      ok('速查说明 popup 来自 03086ae', body().indexOf('03086ae') >= 0);
 
       // 配置总览也有开关
       tab('配置总览'); await wait(420);
       ok('配置总览提供 callback 开关', body().indexOf('输出 callback（顶层可选块）') >= 0);
+
+      /* ---------------- 内置变量：插入下拉 / 拼错拦截 ---------------- */
+      const webhookItem = tpl => ({
+        name: 'BUILTIN', items: [{ id: 'bk', name: '备份', type: 'webhook',
+          target: 'https://api.example.com/snapshot', method: 'POST', body: tpl }]
+      });
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify(webhookItem('{"snapshot":"{{@config}}"}'))); await wait(320);
+      q('#do-import-btn').click(); await wait(560);
+      const insertOpts = () => qa('.editor-panel .inline-tools select')
+        .flatMap(s => Array.prototype.slice.call(s.options).map(o => o.value));
+      ok('body 插入下拉含内置变量 {{@config}}', insertOpts().indexOf('{{@config}}') >= 0,
+        insertOpts().slice(0, 6).join(','));
+      ok('body 插入下拉含动态值 {{#machine}}', insertOpts().indexOf('{{#machine}}') >= 0);
+      const issueMsgs = () => qa('.issue-list .iss-msg').map(x => x.innerText).join(' | ');
+      outTab('校验'); await wait(420);
+      ok('合法内置变量不报「没声明 params」',
+        issueMsgs().indexOf('没有在 params 里声明') < 0 && issueMsgs().indexOf('会原样直传') < 0,
+        issueMsgs().slice(0, 120));
+      outTab('生成的 JSON'); await wait(320);
+
+      topBtn('导入 config.json'); await wait(320);
+      paste(JSON.stringify(webhookItem('{{@confg}}'))); await wait(320);
+      q('#do-import-btn').click(); await wait(560);
+      outTab('校验'); await wait(450);
+      ok('拼错的内置变量在校验页被拦成错误',
+        qa('.issue-list .issue.error .iss-msg').some(x => x.innerText.indexOf('不是合法的内置变量') >= 0),
+        issueMsgs().slice(0, 160));
+      ok('校验页给出可用内置变量清单', issueMsgs().indexOf('{{@config.b64}}') >= 0);
+      outTab('生成的 JSON'); await wait(320);
     } catch (e) {
       R.push('FAIL | 脚本异常 | ' + (e && e.message ? e.message : e));
     }
@@ -476,9 +531,9 @@ try {
   dom = execFileSync(browser, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--user-data-dir=' + path.join(os.tmpdir(), 'ql-ui-check-profile-' + Date.now()),
-    '--virtual-time-budget=65000', '--dump-dom',
+    '--virtual-time-budget=80000', '--dump-dom',
     'file:///' + tmp.replace(/\\/g, '/')
-  ], { encoding: 'utf-8', maxBuffer: 30 * 1024 * 1024, timeout: 120000, stdio: ['ignore', 'pipe', 'ignore'] })
+  ], { encoding: 'utf-8', maxBuffer: 30 * 1024 * 1024, timeout: 150000, stdio: ['ignore', 'pipe', 'ignore'] })
 } catch (e) {
   console.error('浏览器执行失败：' + e.message)
   process.exit(1)

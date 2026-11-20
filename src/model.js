@@ -193,7 +193,7 @@ export function buildConfig(state) {
   out.items = state.items.map(it => serializeItem(it))
   if (state.includeGroups) out.groups = state.groups.map(g => dehydrate(g, GROUP_FIELDS))
   if (state.includeSchedules) out.schedules = state.schedules.map(s => dehydrate(s, SCHEDULE_FIELDS))
-  // 不写这个键 = 上游全走默认值（enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify）
+  // 不写这个键 = 上游全走默认值（enabled=true / max=5 / maxDepth=5 / allow=[] / onQuiet=notify / popup=native）
   if (state.includeCallback) out.callback = dehydrate(state.callback || createCallback(), CALLBACK_FIELDS)
   return out
 }
@@ -229,18 +229,41 @@ export function itemSummary(it) {
 
 /* --------------------------------------------------------------- 模板体检 */
 
-const TPL_RE = /\{\{([\w.-]+)\}\}/g
+/* 对齐上游 ui/app.js 的 TPL_RE：{{{{ / }}}} 是转义口，{{ name }} 才是变量；
+   名字前面可选的 @ 是内置变量的门牌，名字两侧允许空格。# 开头的 {{#ts}} 那套
+   由 AHK 在发送前展开，前端从头到尾不认，所以字符类里故意没有 #。 */
+const TPL_RE = /\{\{\s*(@?[\w.-]+)\s*\}\}/g
+/** builtinIssues() 用的宽正则：@ 后面认到 }} 为止，好把「形似但不合法」的也逮住 */
+const BUILTIN_SCAN_RE = /\{\{\s*(@[^{}]*?)\s*\}\}/g
 
-/** 取一段值（可能是对象/数组）里出现的 {{变量}} 名 */
+/** 取一段值（可能是对象/数组）里出现的 {{变量}} 名。@ 开头的内置变量不算参数。 */
 export function collectTemplateVars(value) {
   if (value == null) return []
   let text = typeof value === 'string' ? value : JSON.stringify(value)
   // 转义口：{{{{ / }}}} 是输出字面花括号，先摘掉免得误判
   text = text.replace(/\{\{\{\{/g, '').replace(/\}\}\}\}/g, '')
   const found = new Set()
+  const re = new RegExp(TPL_RE.source, 'g')
   let m
-  TPL_RE.lastIndex = 0
-  while ((m = TPL_RE.exec(text)) !== null) found.add(m[1])
+  while ((m = re.exec(text)) !== null) {
+    if (m[1] && m[1].charCodeAt(0) !== 64) found.add(m[1])   // 64 = '@'
+  }
+  return [...found]
+}
+
+/**
+ * 扫出一段值里所有 {{@…}} 引用（保留 @ 前缀，去重），包括拼错的形式。
+ * 对齐上游 builtinIssues()：比 TPL_RE 宽，{{@confg}} / {{@config:json}} 也会被抓到，
+ * 由校验器拦下，不能让一段占位符原样发给远端。
+ */
+export function collectBuiltinRefs(value) {
+  if (value == null) return []
+  let text = typeof value === 'string' ? value : JSON.stringify(value)
+  text = text.replace(/\{\{\{\{/g, '').replace(/\}\}\}\}/g, '')
+  const found = new Set()
+  const re = new RegExp(BUILTIN_SCAN_RE.source, 'g')
+  let m
+  while ((m = re.exec(text)) !== null) found.add(m[1])
   return [...found]
 }
 
@@ -251,6 +274,16 @@ export function itemTemplateVars(it) {
     collectTemplateVars(it[k]).forEach(v => vars.add(v))
   }
   return [...vars]
+}
+
+/** 按字段列出内置变量引用，供校验器定位「headers 里只能用 .b64」等提醒 */
+export function itemBuiltinRefs(it) {
+  const out = []
+  for (const k of TEMPLATE_FIELDS) {
+    if (!it._include?.[k] && k !== 'target') continue
+    for (const ref of collectBuiltinRefs(it[k])) out.push({ field: k, ref })
+  }
+  return out
 }
 
 /* --------------------------------------------------------------- 内置示例 */

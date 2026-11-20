@@ -6,15 +6,21 @@ import { state, config, issues, notify } from '../store.js'
 
 const myIssues = computed(() => issues.value.filter(i => i.where === '顶层 · callback'))
 const activeCount = computed(() => CALLBACK_FIELDS.filter(f => state.callback?._include?.[f.key]).length)
-const DEFAULTS = 'enabled=true · max=5 · maxDepth=5 · allow=[] · onQuiet=notify'
+const DEFAULTS = 'enabled=true · max=5 · maxDepth=5 · allow=[] · onQuiet=notify · popup=native'
+// 含花括号的文案走常量，避免 Vue 模板把字面 {{…}} 当插值
+const CB_TPL_EXAMPLE = '{{body.data.path}}'
+const ITEM_PARAM_TPL = '{{参数}}'
 const EXAMPLE = `{
   "code": 0,
-  "data": { "count": 3 },
+  "data": { "count": 3, "path": "C:/a b/c.txt" },
   "_ql_callback": {
     "v": 1,
     "actions": [
-      { "type": "run", "id": "open-backup-dir" },
-      { "type": "msg", "level": "success", "title": "备份完成", "text": "已上传 3 个文件" }
+      { "type": "run", "id": "open-backup-dir",
+        "args": "{{body.data.path}}",
+        "params": { "file": "{{body.data.path}}", "mode": "fast" } },
+      { "type": "msg", "level": "success", "title": "备份完成",
+        "text": "已上传 {{body.data.count}} 个文件（{{status}}）" }
     ]
   }
 }`
@@ -32,7 +38,7 @@ function toggle() {
     <div class="editor-title-row">
       <div>
         <div class="editor-title">回调 callback</div>
-        <div class="editor-subtitle">顶层可选块 · 响应带 _ql_callback 时执行本地动作（上游 d48be68 新增）</div>
+        <div class="editor-subtitle">顶层可选块 · 6 个字段 · 响应带 _ql_callback 时执行本地动作（上游 d48be68 / 32ede80 / 03086ae）</div>
       </div>
     </div>
 
@@ -66,8 +72,12 @@ function toggle() {
         <div class="section-body">
           <pre class="cb-code" v-text="EXAMPLE"></pre>
           <div class="muted fs11 mt6">
-            <span class="mono">run</span> 拉起条目（受 <span class="mono">allow</span> 白名单与防环约束），
-            <span class="mono">msg</span> 弹消息框；动作条数受 <span class="mono">max</span> 限制，链长受 <span class="mono">maxDepth</span> 限制。
+            <span class="mono">run</span> 拉起条目（受 <span class="mono">allow</span> 白名单与防环约束），可用
+            <span class="mono">args</span> / <span class="mono">params</span> 带运行时参数；
+            <span class="mono">msg</span> 弹提示框（两套机制由 <span class="mono">popup</span> 选）。
+            动作值里的 <span class="mono">{{ CB_TPL_EXAMPLE }}</span> 等响应模板会在执行前填好，
+            和条目自己的 <span class="mono">{{ ITEM_PARAM_TPL }}</span> 是两层。
+            动作条数受 <span class="mono">max</span> 限制，链长受 <span class="mono">maxDepth</span> 限制。
           </div>
         </div>
       </div>
