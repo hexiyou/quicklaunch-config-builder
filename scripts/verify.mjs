@@ -423,9 +423,10 @@ dc('BUILTIN_KEYS 为上游的 8 个键',
 dc('BUILTIN_VALUES 8 条与键集合一一对应',
   m.BUILTIN_VALUES.length === 8 &&
   m.BUILTIN_VALUES.every(v => m.BUILTIN_KEYS.has(v.tpl.replace(/^\{\{@|\}\}$/g, ''))))
-dc('DYNAMIC_VALUES 补到 20 条，含 machine 两种写法',
-  m.DYNAMIC_VALUES.length === 20 &&
-  ['{{#machine}}', '{{#machine:short}}'].every(t => m.DYNAMIC_VALUES.some(d => d.tpl === t)))
+dc('DYNAMIC_VALUES 补到 24 条，含 machine 与 date/time/utc',
+  m.DYNAMIC_VALUES.length === 24 &&
+  ['{{#machine}}', '{{#machine:short}}', '{{#date}}', '{{#time}}', '{{#utc}}']
+    .every(t => m.DYNAMIC_VALUES.some(d => d.tpl === t)))
 dc('TPL_RE 认名字两侧空格、跳过 @ 内置变量与 # 动态值、剔除转义口',
   same(m.collectTemplateVars('{{ a }} {{ @config }} {{#ts}} {{{{@fp}}}} {{bad.name}}'), ['a', 'bad.name']),
   JSON.stringify(m.collectTemplateVars('{{ a }} {{ @config }} {{#ts}} {{{{@fp}}}} {{bad.name}}')))

@@ -552,9 +552,14 @@ export const CALLBACK_RULES = [
 
 /* ------------------------------------------------------------- 参考手册 */
 
+/* # 层动态值（上游 364ac47 起含 date / time / utc，格式串语义见 DYNAMIC_RULES） */
 export const DYNAMIC_VALUES = [
   { tpl: '{{#ts}}', desc: 'Unix 秒（10 位）' },
   { tpl: '{{#tsms}}', desc: 'Unix 毫秒（13 位）' },
+  { tpl: '{{#date}}', desc: '本地日期 2026-11-22；带冒号自定义格式，如 {{#date:yyyyMMdd-HHmmss}}' },
+  { tpl: '{{#date:yyyy年MM月dd日}}', desc: '格式串按 token 拼，其余字符原样；token 是 yyyy yy MM MMMM MMM M dd dddd ddd d HH H hh h mm m ss s SSS tt t X x' },
+  { tpl: '{{#time}}', desc: '本地时间 15:25:32' },
+  { tpl: '{{#utc}}', desc: 'ISO 8601 UTC，2026-11-22T07:25:32Z；同样可带自定义格式' },
   { tpl: '{{#uuid}}', desc: 'UUID v4' },
   { tpl: '{{#nonce:16}}', desc: '16 位随机小写字母数字（默认 16，上限 128）' },
   { tpl: '{{#env:NAME}}', desc: '环境变量 NAME 的值（取不到就报错，不会给空串）' },
@@ -618,7 +623,8 @@ export const DYNAMIC_RULES = [
   '认不出来的一律原样保留（大小写敏感），不会误伤老配置里的字面量。',
   '密钥名写错、环境变量取不到、展开后带 CR/LF（请求头注入）都会拒发。',
   '{{#file:…}} 默认裁尾部换行，{{#file-raw:…}} 才保留；二进制文件改用 {{#filebase64:…}} 或 multipart。',
-  '摘要 / Base64 / HMAC 的参数里可用单花括号 {ts} {tsms} {uuid} {nonce:N} {machine} 引用动态值（单花括号只认这五个，不支持再套 hmac）。',
+  '摘要 / Base64 / HMAC 的参数里可用单花括号 {ts} {tsms} {uuid} {nonce:N} {machine} {date:格式} {time} {utc} 引用动态值（不支持再套 hmac）。',
+  "日期时间只输出「现在」：{{#date}} 缺省 yyyy-MM-dd，{{#time}} 缺省 HH:mm:ss，{{#utc}} 缺省 yyyy-MM-ddTHH:mm:ss'Z'。token 区分大小写（M 是月、m 是分；H 是 24 小时、h 是 12 小时），SSS 是毫秒，X / x 是 Unix 秒 / 毫秒；其余字符原样输出，要写 token 字母本身（ISO 的 T、Z）得用单引号包住。MMM / MMMM / ddd / dddd / tt / t 是本地化名称，随系统语言变；数值 token 不受影响。",
   '不要写成 {{#hmac:demo:{{#ts}}}} —— 收尾会凑出 }}}} 被当成转义，改用 {ts}。',
   '模板内联上限 2MB，multipart 单文件上限 8MB；{{#file:路径}} 里的路径不能带裸花括号。',
   '{{#machine}} 由 AHK 读 WMI（主板 + 系统盘）算，缓存在 machine.ini；NVMe 序列号是占位值时会逐级降级到 PNP 实例路径 / 卷序列号 / MachineGuid。它能进请求头，也能写成 {{#hmac:demo:{machine}}} 嵌进签名。'
